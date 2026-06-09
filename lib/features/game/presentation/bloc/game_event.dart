@@ -70,3 +70,10 @@ class MakeAccusationEvent extends GameBlocEvent {
   @override
   List<Object?> get props => [suspect, weapon, room];
 }
+
+class PassTurnEvent extends GameBlocEvent {
+  const PassTurnEvent();
+
+  @override
+  List<Object?> get props => [];
+}

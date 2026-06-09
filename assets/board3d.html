@@ -1,252 +1,3 @@
-<!-- <!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
-  <title>Cluedo Board</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #1A1F2B; overflow: hidden; width: 100vw; height: 100vh; }
-    canvas { display: block; width: 100% !important; height: 100% !important; }
-  </style>
-</head>
-<body>
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
-    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
-  }
-}
-</script>
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-
-// ── Escena ──────────────────────────────────────────────────────────────────
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1A1F2B);
-
-// ── Renderer ─────────────────────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-document.body.appendChild(renderer.domElement);
-
-// ── Cámara ───────────────────────────────────────────────────────────────────
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
-const dist = 25, elev = 25 * Math.PI / 180, rot = 30 * Math.PI / 180;
-camera.position.set(
-  dist * Math.cos(elev) * Math.sin(rot),
-  dist * Math.sin(elev),
-  dist * Math.cos(elev) * Math.cos(rot)
-);
-camera.lookAt(0, 0, 0);
-
-// ── Luces ────────────────────────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xFFF5E0, 0.8));
-const dirLight = new THREE.DirectionalLight(0xFFFFFF, 1.5);
-dirLight.position.set(10, 25, 10);
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
-scene.add(dirLight);
-
-// ── OrbitControls ─────────────────────────────────────────────────────────────
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enablePan = false;
-controls.minDistance = 5;
-controls.maxDistance = 60;
-controls.maxPolarAngle = 1.4;
-controls.target.set(0, 0, 0);
-controls.update();
-
-// ── Posiciones de habitaciones (centradas en 0,0) ────────────────────────────
-const ROOM_POSITIONS = {
-  study:        [-9,  9],
-  hall:         [ 0,  9],
-  lounge:       [ 9,  9],
-  library:      [-9,  0],
-  billiard_room:[ 0,  0],
-  conservatory: [ 9,  0],
-  kitchen:      [-9, -9],
-  ballroom:     [ 0, -9],
-  dining_room:  [ 9, -9],
-};
-
-const TOKEN_OFFSETS = [
-  [0, 0], [-0.8, 0], [0.8, 0],
-  [0, -0.8], [-0.8, -0.8], [0.8, -0.8],
-];
-
-// ── Tablero fallback (usado si no carga el GLB) ───────────────────────────────
-function buildFallbackBoard() {
-  const group = new THREE.Group();
-
-  // Base del tablero
-  const baseGeo = new THREE.BoxGeometry(24, 0.2, 24);
-  const baseMat = new THREE.MeshStandardMaterial({ color: 0x2d4a1e });
-  const base = new THREE.Mesh(baseGeo, baseMat);
-  base.receiveShadow = true;
-  group.add(base);
-
-  // Habitaciones
-  const roomDefs = [
-    { id: 'study',         label: 'Estudio',      x: -9, z:  9, color: 0x8B4513 },
-    { id: 'hall',          label: 'Salón',         x:  0, z:  9, color: 0x4682B4 },
-    { id: 'lounge',        label: 'Sala Estar',    x:  9, z:  9, color: 0x9370DB },
-    { id: 'library',       label: 'Biblioteca',    x: -9, z:  0, color: 0x2E8B57 },
-    { id: 'billiard_room', label: 'Billar',        x:  0, z:  0, color: 0xB8860B },
-    { id: 'conservatory',  label: 'Invernadero',   x:  9, z:  0, color: 0x20B2AA },
-    { id: 'kitchen',       label: 'Cocina',        x: -9, z: -9, color: 0xCD853F },
-    { id: 'ballroom',      label: 'Sala Baile',    x:  0, z: -9, color: 0xDC143C },
-    { id: 'dining_room',   label: 'Comedor',       x:  9, z: -9, color: 0x4169E1 },
-  ];
-
-  roomDefs.forEach(r => {
-    const geo = new THREE.BoxGeometry(6, 0.25, 6);
-    const mat = new THREE.MeshStandardMaterial({ color: r.color });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(r.x, 0.22, r.z);
-    mesh.receiveShadow = true;
-    group.add(mesh);
-
-    // Borde de la habitación
-    const edgeGeo = new THREE.EdgesGeometry(geo);
-    const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.3, transparent: true });
-    const edges = new THREE.LineSegments(edgeGeo, edgeMat);
-    edges.position.set(r.x, 0.22, r.z);
-    group.add(edges);
-  });
-
-  // Pasillos (líneas de grid)
-  const gridHelper = new THREE.GridHelper(24, 24, 0x444444, 0x333333);
-  gridHelper.position.y = 0.11;
-  group.add(gridHelper);
-
-  scene.add(group);
-  notifyReady();
-}
-
-// ── Tokens ───────────────────────────────────────────────────────────────────
-const tokenMeshes = {}; // playerId -> mesh
-
-function buildFallbackToken(color) {
-  const group = new THREE.Group();
-  // Cuerpo cilíndrico
-  const bodyGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 16);
-  const bodyMat = new THREE.MeshStandardMaterial({
-    color: color,
-    metalness: 0.7,
-    roughness: 0.3,
-  });
-  const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.castShadow = true;
-  group.add(body);
-  // Cabeza esférica
-  const headGeo = new THREE.SphereGeometry(0.22, 16, 16);
-  const head = new THREE.Mesh(headGeo, bodyMat);
-  head.position.y = 0.45;
-  head.castShadow = true;
-  group.add(head);
-  return group;
-}
-
-function syncPlayers(players) {
-  // players: [{id, hexColor, x, y, roomId, isEliminated}, ...]
-  players.forEach((player, idx) => {
-    let mesh = tokenMeshes[player.id];
-
-    if (!mesh) {
-      const color = parseInt(player.hexColor.replace('#', ''), 16);
-      mesh = buildFallbackToken(color);
-      scene.add(mesh);
-      tokenMeshes[player.id] = mesh;
-    }
-
-    mesh.visible = !player.isEliminated;
-
-    if (player.roomId && ROOM_POSITIONS[player.roomId]) {
-      const [rx, rz] = ROOM_POSITIONS[player.roomId];
-      const playersInRoom = players.filter(p => p.roomId === player.roomId);
-      const roomIdx = playersInRoom.findIndex(p => p.id === player.id);
-      const off = TOKEN_OFFSETS[roomIdx] || [0, 0];
-      mesh.position.set(rx + off[0], 0.5, rz + off[1]);
-    } else {
-      mesh.position.set(
-        player.x - 12,
-        0.5,
-        player.y - 12
-      );
-    }
-  });
-}
-
-// ── Comunicación Flutter ↔ JS ─────────────────────────────────────────────────
-function notifyReady() {
-  if (window.FlutterChannel) {
-    window.FlutterChannel.postMessage(JSON.stringify({ type: 'ready' }));
-  }
-}
-
-// Flutter llama a esta función para sincronizar estado
-window.updateGameState = function(jsonStr) {
-  try {
-    const state = JSON.parse(jsonStr);
-    if (state.players) syncPlayers(state.players);
-  } catch(e) {
-    console.error('updateGameState error:', e);
-  }
-};
-
-// ── Carga del tablero GLB ─────────────────────────────────────────────────────
-// El GLB se sirve desde Flutter assets vía el asset loader del WebView
-// Si falla, usa el tablero procedural
-const loader = new GLTFLoader();
-loader.load(
-  'board.glb',
-  (gltf) => {
-    gltf.scene.traverse(child => {
-      if (child.isMesh) {
-        child.receiveShadow = true;
-        child.castShadow = true;
-      }
-    });
-    scene.add(gltf.scene);
-    notifyReady();
-  },
-  undefined,
-  (_err) => {
-    // Fallback procedural
-    buildFallbackBoard();
-  }
-);
-
-// ── Resize ────────────────────────────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
-
-// ── Loop de renderizado ───────────────────────────────────────────────────────
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
-}
-animate();
-</script>
-</body>
-</html> -->
-
-
-
-
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -470,7 +221,7 @@ function buildBoard() {
   fctx.lineWidth = 1;
   for (let i = 0; i <= 512; i += 512/26) {
     fctx.beginPath(); fctx.moveTo(i, 0); fctx.lineTo(i, 512); fctx.stroke();
-    fctx.beginPath(); fctx.moveTo(0, i); fctx.lineTo(512, i); fctx.stroke();
+    fctx.beginPath(); fctx.moveTo(0, i); fctx.lineTo(i, 512); fctx.stroke();
   }
   const floorTex = new THREE.CanvasTexture(floorCanvas);
   floorTex.wrapS = THREE.RepeatWrapping;
@@ -485,6 +236,13 @@ function buildBoard() {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
+
+  // Grid de movimiento - más visible para ayudar a visualizar casillas
+  const gridHelper = new THREE.GridHelper(24, 24, 0x00ffff, 0x00ffff);
+  gridHelper.position.y = 0.01; // Ligeramente encima del suelo para evitar z-fighting
+  gridHelper.material.opacity = 0.7;
+  gridHelper.material.transparent = true;
+  scene.add(gridHelper);
 
   // Borde exterior del tablero
   const borderGeo = new THREE.BoxGeometry(27, 0.15, 27);
@@ -537,8 +295,8 @@ function buildBoard() {
     [
       { w: 7, d: wallThick, x: 0,        z:  3.5 + wallThick / 2 },
       { w: 7, d: wallThick, x: 0,        z: -3.5 - wallThick / 2 },
-      { w: wallThick, d: 7, x:  3.5 + wallThick / 2, z: 0 },
-      { w: wallThick, d: 7, x: -3.5 - wallThick / 2, z: 0 },
+      { w: 7, d: wallThick, x:  3.5 + wallThick / 2, z: 0 },
+      { w: 7, d: wallThick, x: -3.5 - wallThick / 2, z: 0 },
     ].forEach(w => {
       const wGeo = new THREE.BoxGeometry(w.w, wallH, w.d);
       const wMesh = new THREE.Mesh(wGeo, wallMat);
@@ -598,7 +356,9 @@ const TOKEN_OFFSETS = [
   [0, -0.8], [-0.8, -0.8], [0.8, -0.8],
 ];
 
-const tokenMeshes = {};
+const tokenMeshes = {}; // playerId -> mesh
+const tokenTargets = {}; // playerId -> target position for smooth movement
+const tokenAnimations = {}; // playerId -> animation state
 
 function buildToken(hexColor) {
   const color = parseInt(hexColor.replace('#', 'FF'), 16) & 0xFFFFFF;
@@ -651,17 +411,173 @@ function syncPlayers(players) {
 
     mesh.visible = !player.isEliminated;
 
+    // Calculate target position
+    let targetPosition;
     if (player.roomId && ROOM_POSITIONS[player.roomId]) {
       const [rx, rz] = ROOM_POSITIONS[player.roomId];
       const inRoom = players.filter(p => p.roomId === player.roomId);
       const idx = inRoom.findIndex(p => p.id === player.id);
       const off = TOKEN_OFFSETS[idx] || [0, 0];
-      mesh.position.set(rx + off[0], 0.5, rz + off[1]);
+      targetPosition = new THREE.Vector3(rx + off[0], 0.5, rz + off[1]);
     } else {
-      mesh.position.set(player.x - 12, 0.5, player.y - 12);
+      targetPosition = new THREE.Vector3(player.x - 12, 0.5, player.y - 12);
+    }
+
+    // Store target for smooth movement
+    tokenTargets[player.id] = targetPosition;
+
+    // If we're not already animating this token, snap to position immediately
+    // (this handles initial placement and non-animated moves like secret passages)
+    if (!tokenAnimations[player.id]) {
+      mesh.position.copy(targetPosition);
     }
   });
 }
+
+// ── Click Handling ─────────────────────────────────────────────────────
+let raycaster = new THREE.Raycaster();
+let mouse = new THREE.Vector2();
+
+function onMouseClick(event) {
+  // Calculate mouse position in normalized device coordinates
+  // (-1 to +1) for both components
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+  // Update the raycaster
+  raycaster.setFromCamera(mouse, camera);
+
+  // Create a plane at y=0.5 (where tokens move)
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.5);
+
+  // Calculate intersection point
+  const intersectPoint = new THREE.Vector3();
+  raycaster.ray.intersectPlane(plane, intersectPoint);
+
+  if (intersectPoint) {
+    // Convert Three.js coordinates to game grid coordinates
+    // Three.js: x: -12 to +11, z: -12 to +11 (after our coordinate transform)
+    // Game: x: 0 to 23, y: 0 to 24
+
+    const gameX = Math.round(intersectPoint.x + 12);
+    const gameY = Math.round(-intersectPoint.z + 12); // Note: z is negated
+
+    // Send click to Flutter
+    if (window.FlutterChannel) {
+      window.FlutterChannel.postMessage(JSON.stringify({
+        type: 'gridClick',
+        x: gameX,
+        y: gameY
+      }));
+    }
+  }
+}
+
+// Add event listener
+renderer.domElement.addEventListener('click', onMouseClick, false);
+
+// ── Handle messages from Flutter ─────────────────────────────────────────────
+window.handleFlutterMessage = function(message) {
+  try {
+    const msg = JSON.parse(message);
+    if (msg.type === 'animateToken') {
+      _startTokenAnimation(msg.playerId, msg.path, msg.duration);
+    }
+  } catch(e) {
+    console.error('handleFlutterMessage error:', e);
+  }
+};
+
+function _startTokenAnimation(playerId, path, durationMs) {
+  // Cancel any existing animation for this token
+  if (tokenAnimations[playerId]) {
+    cancelAnimationFrame(tokenAnimations[playerId].animationFrame);
+  }
+
+  // Convert path from game coordinates to Three.js coordinates
+  const threePath = path.map(point => {
+    // Game coordinates: x: 0-23, y: 0-24
+    // Three.js coordinates: x: -12 to +11, y: 0.5 (fixed height), z: -12 to +11
+    return new THREE.Vector3(
+      point[0] - 12,  // x
+      0.5,            // y (fixed height)
+      -(point[1] - 12) // z (note: flipped y to z and negated for correct orientation)
+    );
+  });
+
+  // Store animation state
+  tokenAnimations[playerId] = {
+    startTime: performance.now(),
+    duration: durationMs,
+    path: threePath,
+    currentSegment: 0,
+    segmentStartTime: performance.now(),
+    mesh: tokenMeshes[playerId] || null,
+    active: true
+  };
+
+  // If we don't have the mesh yet, we'll wait for syncPlayers to create it
+  if (!tokenMeshes[playerId]) {
+    // Animation will start when the mesh is created in syncPlayers
+    return;
+  }
+}
+
+// Animation loop extension
+const originalAnimate = window.animate || (() => {});
+window.animate = function() {
+  requestAnimationFrame(window.animate);
+
+  // Update token animations
+  const now = performance.now();
+  for (const playerId in tokenAnimations) {
+    const anim = tokenAnimations[playerId];
+    if (!anim.active || !anim.mesh) continue;
+
+    // Calculate progress through entire animation
+    const elapsed = now - anim.startTime;
+    if (elapsed >= anim.duration) {
+      // Animation complete
+      anim.active = false;
+      // Snap to final position
+      if (anim.path.length > 0) {
+        anim.mesh.position.copy(anim.path[anim.path.length - 1]);
+      }
+      continue;
+    }
+
+    // Calculate which segment we're in
+    const segmentDuration = anim.duration / (anim.path.length - 1);
+    const segmentIndex = Math.floor(elapsed / segmentDuration);
+    const segmentProgress = (elapsed % segmentDuration) / segmentDuration;
+
+    // Constrain to valid range
+    const clampedSegmentIndex = Math.min(segmentIndex, anim.path.length - 2);
+    const clampedProgress = Math.min(segmentProgress, 1.0);
+
+    // Get start and end points for current segment
+    const startPoint = anim.path[clampedSegmentIndex];
+    const endPoint = anim.path[clampedSegmentIndex + 1];
+
+    // Linear interpolation
+    const currentPos = startPoint.clone().lerp(endPoint, clampedProgress);
+    anim.mesh.position.copy(currentPos);
+  }
+
+  // Update token halos (pulsing effect)
+  Object.values(tokenMeshes).forEach((mesh, i) => {
+    const halo = mesh.children.find(c => c.isLight);
+    if (halo) halo.intensity = 0.4 + 0.2 * Math.sin(now * 0.002 + i);
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+};
+
+// Start the animation loop
+window.animate();
 
 // ── Comunicación Flutter ↔ JS ─────────────────────────────────────────────────
 function notifyReady() {
@@ -689,23 +605,6 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
-// ── Animación ─────────────────────────────────────────────────────────────────
-const clock = new THREE.Clock();
-function animate() {
-  requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
-
-  // Pulso suave en los halos de los tokens
-  Object.values(tokenMeshes).forEach((mesh, i) => {
-    const halo = mesh.children.find(c => c.isLight);
-    if (halo) halo.intensity = 0.4 + 0.2 * Math.sin(t * 2 + i);
-  });
-
-  controls.update();
-  renderer.render(scene, camera);
-}
-animate();
 </script>
 </body>
 </html>

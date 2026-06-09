@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
 import '../../domain/entities/position.dart';
+import '../../domain/entities/tile_type.dart';
 import '../../domain/repositories/game_repository.dart';
 import '../../domain/entities/state_game.dart';
 import '../../domain/entities/character.dart';
@@ -23,6 +24,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     on<RefuteSuggestionEvent>(_onRefuteSuggestion);
     on<MakeAccusationEvent>(_onMakeAccusation);
     on<UseSecretPassageEvent>(_onUseSecretPassage);
+    on<PassTurnEvent>(_onPassTurn);
   }
 
   Future<void> _onStartNewGame(
@@ -122,6 +124,78 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     }
   }
 
+  List<Position> _calculateMovementPath(Position start, Position end, ClueGameState gameState) {
+    // If moving to a room, we need to handle door entry
+    if (end.roomId != null) {
+      // For room entry, path goes to the door then into the room
+      // Simplified: just return start and end for now
+      return [start, end];
+    } else {
+      // Hallway movement - use BFS to find shortest path
+      return _findHallwayPath(start, end, gameState);
+    }
+  }
+
+  List<Position> _findHallwayPath(Position start, Position end, ClueGameState gameState) {
+    // BFS to find shortest path in hallways
+    final queue = <List<Position>>[];
+    final visited = <String>{};
+
+    queue.add([start]);
+    visited.add('${start.x},${start.y}');
+
+    while (queue.isNotEmpty) {
+      final path = queue.removeAt(0);
+      final current = path.last;
+
+      if (current.x == end.x && current.y == end.y) {
+        return path;
+      }
+
+      // Explore neighbors (up, down, left, right)
+      final neighbors = [
+        Position(x: current.x, y: current.y + 1),
+        Position(x: current.x, y: current.y - 1),
+        Position(x: current.x + 1, y: current.y),
+        Position(x: current.x - 1, y: current.y),
+      ];
+
+      for (final neighbor in neighbors) {
+        // Check bounds
+        if (neighbor.x < 0 || neighbor.x >= 24 || neighbor.y < 0 || neighbor.y >= 25) {
+          continue;
+        }
+
+        // Check if not a wall
+        final boardMap = gameState.boardMap;
+        final tileType = boardMap.getTileType(neighbor.x, neighbor.y);
+        if (tileType == TileType.wall) {
+          continue;
+        }
+
+        // Check if not occupied by another player (in hallway)
+        final isOccupied = gameState.players.any((p) =>
+          !p.isEliminated &&
+          p.position.roomId == null &&
+          p.position.x == neighbor.x &&
+          p.position.y == neighbor.y);
+        if (isOccupied) {
+          continue;
+        }
+
+        final key = '${neighbor.x},${neighbor.y}';
+        if (!visited.contains(key)) {
+          visited.add(key);
+          final newPath = [...path, neighbor];
+          queue.add(newPath);
+        }
+      }
+    }
+
+    // If no path found (shouldn't happen in valid game), return direct path
+    return [start, end];
+  }
+
   void _onMoveCharacter(MoveCharacterEvent event, Emitter<GameBlocState> emit) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
@@ -130,8 +204,20 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final updatedPlayers = List<PlayerCharacter>.from(currentState.players);
       final int index = currentState.currentTurnIndex;
 
+      // Get the player who is moving
+      final movingPlayer = updatedPlayers[index];
+      final startPosition = movingPlayer.position;
+      final endPosition = Position(x: event.x, y: event.y, roomId: event.roomId);
+
+      // Calculate the path for animation
+      final movementPath = _calculateMovementPath(startPosition, endPosition, currentState);
+
+      // Convert path to JSON-serializable format
+      final pathJson = movementPath.map((pos) => [pos.x.toDouble(), pos.y.toDouble()]).toList();
+
+      // Update the player's position
       updatedPlayers[index] = updatedPlayers[index].copyWith(
-        position: Position(x: event.x, y: event.y, roomId: event.roomId),
+        position: endPosition,
       );
 
       final enHabitacion = event.roomId != null;
@@ -142,6 +228,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
         siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, updatedPlayers);
       }
 
+      // Emit the state change with path data for animation
       emit(
         GamePlayReady(
           gameState: currentState.copyWith(
@@ -153,6 +240,11 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
           notificationMessage: enHabitacion
               ? "Has entrado a la sala. Puedes formular una hipótesis o pasar."
               : "Movimiento finalizado. Turno del siguiente detective.",
+          animationPath: {
+            'playerId': movingPlayer.card.id,
+            'path': pathJson,
+            'duration': 1000, // 1 second animation duration
+          },
         ),
       );
     }
@@ -210,7 +302,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final currentRoomId = currentState.currentCharacter.position.roomId;
       if (currentRoomId == null) return;
 
-      final roomCard = currentState.totalDeck.firstWhere((c) => c.id == currentRoomId);
+      final roomCard = currentState.solution.room;
       final List<ClueCard> sugerencia = [event.suspect, event.weapon, roomCard];
       final primerRefutador = (currentState.currentTurnIndex + 1) % currentState.players.length;
 
@@ -344,5 +436,28 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       siguiente = (siguiente + 1) % listaJugadores.length;
     }
     return turnoActual;
+  }
+
+  void _onPassTurn(PassTurnEvent event, Emitter<GameBlocState> emit) {
+    if (state is GamePlayReady) {
+      final currentState = (state as GamePlayReady).gameState;
+
+      // Only allow passing when in suggesting phase (after entering a room)
+      if (currentState.phase == GamePhase.suggesting) {
+        final siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, currentState.players);
+
+        emit(
+          GamePlayReady(
+            gameState: currentState.copyWith(
+              phase: GamePhase.rolling,
+              currentTurnIndex: siguienteTurno,
+              currentDiceResult: null,
+            ),
+            notificationMessage: "Has pasado tu turno. Turno del siguiente detective.",
+          ),
+        );
+      }
+      // If not in suggesting phase, ignore the pass (or could handle other cases)
+    }
   }
 }

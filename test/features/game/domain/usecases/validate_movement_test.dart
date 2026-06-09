@@ -118,4 +118,74 @@ void main() {
 
     expect(result, false);
   });
+
+  // Nuevos tests para entrada a habitación
+  test('Debería retornar TRUE si estás en la puerta de una habitación y tienes al menos 1 dado', () {
+    // Posición frente a la puerta de study (puerta en (6,4), study está en x 0-5, y 0-5)
+    // La puerta de study en (6,4) da acceso al study
+    final gameState = createMockGameState(
+      players: [createMockPlayer(const Position(x: 6, y: 4, roomId: null))], // En la puerta
+      currentDiceResult: 1, // Solo necesitas 1 paso para entrar
+      lastDiceRoll: const [1, 0],
+    );
+
+    final result = validateMovement(
+      gameState: gameState,
+      target: const Position(x: 2, y: 2, roomId: 'study'), // Dentro de study
+    );
+
+    expect(result, true);
+  });
+
+  test('Debería retornar TRUE si necesitas caminar hasta la puerta y luego entrar, y tienes suficientes dados', () {
+    // Partiendo de (6,3) (pasillo norte de la puerta de study), necesitas ir a la puerta de study (6,4) y luego entrar
+    // Distancia a la puerta: |6-6| + |4-3| = 1 paso
+    // Más 1 paso para entrar = 2 pasos totales
+    final gameState = createMockGameState(
+      players: [createMockPlayer(const Position(x: 6, y: 3, roomId: null))],
+      currentDiceResult: 2, // Exactamente lo necesario
+      lastDiceRoll: const [1, 1],
+    );
+
+    final result = validateMovement(
+      gameState: gameState,
+      target: const Position(x: 2, y: 2, roomId: 'study'), // Dentro de study
+    );
+
+    expect(result, true);
+  });
+
+  test('Debería retornar FALSE si no tienes suficientes dados para llegar a la puerta y entrar', () {
+    // Partiendo de (0,4), necesitas ir a la puerta de study (6,4) y luego entrar
+    // Distancia a la puerta: |6-0| + |4-4| = 6 pasos
+    // Más 1 paso para entrar = 7 pasos totales
+    // Pero solo tenemos 5 dados
+    final gameState = createMockGameState(
+      players: [createMockPlayer(const Position(x: 0, y: 4, roomId: null))],
+      currentDiceResult: 5, // Insuficiente
+      lastDiceRoll: const [3, 2],
+    );
+
+    final result = validateMovement(
+      gameState: gameState,
+      target: const Position(x: 2, y: 2, roomId: 'study'), // Dentro de study
+    );
+
+    expect(result, false);
+  });
+
+  test('Debería retornar FALSE si intentas entrar a una habitación inexistente', () {
+    final gameState = createMockGameState(
+      players: [createMockPlayer(const Position(x: 6, y: 4, roomId: null))],
+      currentDiceResult: 10, // Muchos dados
+      lastDiceRoll: const [5, 5],
+    );
+
+    final result = validateMovement(
+      gameState: gameState,
+      target: const Position(x: 2, y: 2, roomId: 'nonexistent'), // Habitación que no existe
+    );
+
+    expect(result, false);
+  });
 }
