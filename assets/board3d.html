@@ -1,0 +1,711 @@
+<!-- <!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>Cluedo Board</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1A1F2B; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100% !important; height: 100% !important; }
+  </style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// ── Escena ──────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1A1F2B);
+
+// ── Renderer ─────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// ── Cámara ───────────────────────────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+const dist = 25, elev = 25 * Math.PI / 180, rot = 30 * Math.PI / 180;
+camera.position.set(
+  dist * Math.cos(elev) * Math.sin(rot),
+  dist * Math.sin(elev),
+  dist * Math.cos(elev) * Math.cos(rot)
+);
+camera.lookAt(0, 0, 0);
+
+// ── Luces ────────────────────────────────────────────────────────────────────
+scene.add(new THREE.AmbientLight(0xFFF5E0, 0.8));
+const dirLight = new THREE.DirectionalLight(0xFFFFFF, 1.5);
+dirLight.position.set(10, 25, 10);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
+scene.add(dirLight);
+
+// ── OrbitControls ─────────────────────────────────────────────────────────────
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enablePan = false;
+controls.minDistance = 5;
+controls.maxDistance = 60;
+controls.maxPolarAngle = 1.4;
+controls.target.set(0, 0, 0);
+controls.update();
+
+// ── Posiciones de habitaciones (centradas en 0,0) ────────────────────────────
+const ROOM_POSITIONS = {
+  study:        [-9,  9],
+  hall:         [ 0,  9],
+  lounge:       [ 9,  9],
+  library:      [-9,  0],
+  billiard_room:[ 0,  0],
+  conservatory: [ 9,  0],
+  kitchen:      [-9, -9],
+  ballroom:     [ 0, -9],
+  dining_room:  [ 9, -9],
+};
+
+const TOKEN_OFFSETS = [
+  [0, 0], [-0.8, 0], [0.8, 0],
+  [0, -0.8], [-0.8, -0.8], [0.8, -0.8],
+];
+
+// ── Tablero fallback (usado si no carga el GLB) ───────────────────────────────
+function buildFallbackBoard() {
+  const group = new THREE.Group();
+
+  // Base del tablero
+  const baseGeo = new THREE.BoxGeometry(24, 0.2, 24);
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x2d4a1e });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.receiveShadow = true;
+  group.add(base);
+
+  // Habitaciones
+  const roomDefs = [
+    { id: 'study',         label: 'Estudio',      x: -9, z:  9, color: 0x8B4513 },
+    { id: 'hall',          label: 'Salón',         x:  0, z:  9, color: 0x4682B4 },
+    { id: 'lounge',        label: 'Sala Estar',    x:  9, z:  9, color: 0x9370DB },
+    { id: 'library',       label: 'Biblioteca',    x: -9, z:  0, color: 0x2E8B57 },
+    { id: 'billiard_room', label: 'Billar',        x:  0, z:  0, color: 0xB8860B },
+    { id: 'conservatory',  label: 'Invernadero',   x:  9, z:  0, color: 0x20B2AA },
+    { id: 'kitchen',       label: 'Cocina',        x: -9, z: -9, color: 0xCD853F },
+    { id: 'ballroom',      label: 'Sala Baile',    x:  0, z: -9, color: 0xDC143C },
+    { id: 'dining_room',   label: 'Comedor',       x:  9, z: -9, color: 0x4169E1 },
+  ];
+
+  roomDefs.forEach(r => {
+    const geo = new THREE.BoxGeometry(6, 0.25, 6);
+    const mat = new THREE.MeshStandardMaterial({ color: r.color });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(r.x, 0.22, r.z);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    // Borde de la habitación
+    const edgeGeo = new THREE.EdgesGeometry(geo);
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0xffffff, opacity: 0.3, transparent: true });
+    const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+    edges.position.set(r.x, 0.22, r.z);
+    group.add(edges);
+  });
+
+  // Pasillos (líneas de grid)
+  const gridHelper = new THREE.GridHelper(24, 24, 0x444444, 0x333333);
+  gridHelper.position.y = 0.11;
+  group.add(gridHelper);
+
+  scene.add(group);
+  notifyReady();
+}
+
+// ── Tokens ───────────────────────────────────────────────────────────────────
+const tokenMeshes = {}; // playerId -> mesh
+
+function buildFallbackToken(color) {
+  const group = new THREE.Group();
+  // Cuerpo cilíndrico
+  const bodyGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.7, 16);
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color: color,
+    metalness: 0.7,
+    roughness: 0.3,
+  });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  body.castShadow = true;
+  group.add(body);
+  // Cabeza esférica
+  const headGeo = new THREE.SphereGeometry(0.22, 16, 16);
+  const head = new THREE.Mesh(headGeo, bodyMat);
+  head.position.y = 0.45;
+  head.castShadow = true;
+  group.add(head);
+  return group;
+}
+
+function syncPlayers(players) {
+  // players: [{id, hexColor, x, y, roomId, isEliminated}, ...]
+  players.forEach((player, idx) => {
+    let mesh = tokenMeshes[player.id];
+
+    if (!mesh) {
+      const color = parseInt(player.hexColor.replace('#', ''), 16);
+      mesh = buildFallbackToken(color);
+      scene.add(mesh);
+      tokenMeshes[player.id] = mesh;
+    }
+
+    mesh.visible = !player.isEliminated;
+
+    if (player.roomId && ROOM_POSITIONS[player.roomId]) {
+      const [rx, rz] = ROOM_POSITIONS[player.roomId];
+      const playersInRoom = players.filter(p => p.roomId === player.roomId);
+      const roomIdx = playersInRoom.findIndex(p => p.id === player.id);
+      const off = TOKEN_OFFSETS[roomIdx] || [0, 0];
+      mesh.position.set(rx + off[0], 0.5, rz + off[1]);
+    } else {
+      mesh.position.set(
+        player.x - 12,
+        0.5,
+        player.y - 12
+      );
+    }
+  });
+}
+
+// ── Comunicación Flutter ↔ JS ─────────────────────────────────────────────────
+function notifyReady() {
+  if (window.FlutterChannel) {
+    window.FlutterChannel.postMessage(JSON.stringify({ type: 'ready' }));
+  }
+}
+
+// Flutter llama a esta función para sincronizar estado
+window.updateGameState = function(jsonStr) {
+  try {
+    const state = JSON.parse(jsonStr);
+    if (state.players) syncPlayers(state.players);
+  } catch(e) {
+    console.error('updateGameState error:', e);
+  }
+};
+
+// ── Carga del tablero GLB ─────────────────────────────────────────────────────
+// El GLB se sirve desde Flutter assets vía el asset loader del WebView
+// Si falla, usa el tablero procedural
+const loader = new GLTFLoader();
+loader.load(
+  'board.glb',
+  (gltf) => {
+    gltf.scene.traverse(child => {
+      if (child.isMesh) {
+        child.receiveShadow = true;
+        child.castShadow = true;
+      }
+    });
+    scene.add(gltf.scene);
+    notifyReady();
+  },
+  undefined,
+  (_err) => {
+    // Fallback procedural
+    buildFallbackBoard();
+  }
+);
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Loop de renderizado ───────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html> -->
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>Cluedo Board</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; overflow: hidden; width: 100vw; height: 100vh; }
+    canvas { display: block; width: 100% !important; height: 100% !important; }
+  </style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ── Renderer ──────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.8;
+document.body.appendChild(renderer.domElement);
+
+// ── Escena ────────────────────────────────────────────────────────────────────
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a0f);
+scene.fog = new THREE.Fog(0x0a0a0f, 40, 80);
+
+// ── Cámara ────────────────────────────────────────────────────────────────────
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+const dist = 28, elev = 30 * Math.PI / 180, rot = 20 * Math.PI / 180;
+camera.position.set(
+  dist * Math.cos(elev) * Math.sin(rot),
+  dist * Math.sin(elev),
+  dist * Math.cos(elev) * Math.cos(rot)
+);
+camera.lookAt(0, 0, 0);
+
+// ── OrbitControls ─────────────────────────────────────────────────────────────
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enablePan = false;
+controls.minDistance = 8;
+controls.maxDistance = 55;
+controls.maxPolarAngle = 1.35;
+controls.target.set(0, 0, 0);
+controls.update();
+
+// ── Luces ─────────────────────────────────────────────────────────────────────
+// Luz ambiental muy tenue — atmósfera oscura
+scene.add(new THREE.AmbientLight(0x1a1a2e, 1.2));
+
+// Luz principal cenital tenue
+const mainLight = new THREE.DirectionalLight(0xffeedd, 0.6);
+mainLight.position.set(5, 20, 8);
+mainLight.castShadow = true;
+mainLight.shadow.mapSize.width = 2048;
+mainLight.shadow.mapSize.height = 2048;
+mainLight.shadow.camera.near = 0.5;
+mainLight.shadow.camera.far = 60;
+mainLight.shadow.camera.left = -15;
+mainLight.shadow.camera.right = 15;
+mainLight.shadow.camera.top = 15;
+mainLight.shadow.camera.bottom = -15;
+scene.add(mainLight);
+
+// ── Definición de habitaciones ────────────────────────────────────────────────
+const ROOMS = [
+  { id: 'study',         nameEs: 'Estudio',       x: -8, z:  8, color: 0x1a0a2e, accent: 0x6a0dad, icon: '🕯' },
+  { id: 'hall',          nameEs: 'Vestíbulo',      x:  0, z:  8, color: 0x0a1a0a, accent: 0x228b22, icon: '🚪' },
+  { id: 'lounge',        nameEs: 'Sala de Estar',  x:  8, z:  8, color: 0x1a0a0a, accent: 0x8b0000, icon: '🔥' },
+  { id: 'library',       nameEs: 'Biblioteca',     x: -8, z:  0, color: 0x0a0a1a, accent: 0x00008b, icon: '📚' },
+  { id: 'billiard_room', nameEs: 'Sala de Billar', x:  0, z:  0, color: 0x001a0a, accent: 0x006400, icon: '🎱' },
+  { id: 'conservatory',  nameEs: 'Invernadero',    x:  8, z:  0, color: 0x001a1a, accent: 0x008b8b, icon: '🌿' },
+  { id: 'kitchen',       nameEs: 'Cocina',         x: -8, z: -8, color: 0x1a0f00, accent: 0xb8860b, icon: '🔪' },
+  { id: 'ballroom',      nameEs: 'Sala de Baile',  x:  0, z: -8, color: 0x10001a, accent: 0x9400d3, icon: '🎭' },
+  { id: 'dining_room',   nameEs: 'Comedor',        x:  8, z: -8, color: 0x001020, accent: 0x00308f, icon: '🍷' },
+];
+
+const ROOM_POSITIONS = {};
+ROOMS.forEach(r => { ROOM_POSITIONS[r.id] = [r.x, r.z]; });
+
+// ── Helper: canvas texture con texto ─────────────────────────────────────────
+function makeRoomTexture(room) {
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  // Fondo oscuro con color de habitación
+  const bg = `#${room.color.toString(16).padStart(6, '0')}`;
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+
+  // Viñeta (bordes más oscuros)
+  const vignette = ctx.createRadialGradient(size/2, size/2, size*0.2, size/2, size/2, size*0.75);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)');
+  vignette.addColorStop(1, 'rgba(0,0,0,0.7)');
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, size, size);
+
+  // Patrón de suelo — líneas tenues
+  ctx.strokeStyle = `rgba(255,255,255,0.04)`;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= size; i += size / 6) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
+  }
+
+  // Borde interior con color de acento
+  const ac = `#${room.accent.toString(16).padStart(6, '0')}`;
+  ctx.strokeStyle = ac;
+  ctx.lineWidth = 8;
+  ctx.strokeRect(16, 16, size - 32, size - 32);
+
+  // Brillo en esquinas
+  [
+    [16, 16], [size - 16, 16],
+    [16, size - 16], [size - 16, size - 16]
+  ].forEach(([cx, cy]) => {
+    const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
+    grd.addColorStop(0, ac + 'aa');
+    grd.addColorStop(1, 'transparent');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, size, size);
+  });
+
+  // Nombre de la habitación
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Sombra del texto
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 12;
+
+  // Texto principal
+  ctx.fillStyle = '#f0e6d3';
+  ctx.font = `bold ${size * 0.12}px serif`;
+  // Dividir nombre en dos líneas si es largo
+  const words = room.nameEs.split(' ');
+  if (words.length > 2) {
+    const mid = Math.ceil(words.length / 2);
+    const line1 = words.slice(0, mid).join(' ');
+    const line2 = words.slice(mid).join(' ');
+    ctx.fillText(line1, size / 2, size / 2 - size * 0.08);
+    ctx.fillText(line2, size / 2, size / 2 + size * 0.08);
+  } else if (words.length === 2) {
+    ctx.fillText(words[0], size / 2, size / 2 - size * 0.07);
+    ctx.fillText(words[1], size / 2, size / 2 + size * 0.07);
+  } else {
+    ctx.fillText(room.nameEs, size / 2, size / 2);
+  }
+
+  ctx.shadowBlur = 0;
+
+  // Línea decorativa bajo el nombre
+  ctx.strokeStyle = ac;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(size * 0.25, size * 0.62);
+  ctx.lineTo(size * 0.75, size * 0.62);
+  ctx.stroke();
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+// ── Helper: canvas texture para paredes ──────────────────────────────────────
+function makeWallTexture(accent) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#0d0d0d';
+  ctx.fillRect(0, 0, size, size);
+
+  // Patrón de ladrillo tenue
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  const bh = 32, bw = 64;
+  for (let row = 0; row * bh < size; row++) {
+    const offset = (row % 2) * (bw / 2);
+    for (let col = -1; col * bw < size + bw; col++) {
+      ctx.strokeRect(col * bw + offset, row * bh, bw, bh);
+    }
+  }
+
+  const ac = `#${accent.toString(16).padStart(6, '0')}`;
+  ctx.strokeStyle = ac + '44';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(4, 4, size - 8, size - 8);
+
+  return new THREE.CanvasTexture(canvas);
+}
+
+// ── Construcción del tablero ──────────────────────────────────────────────────
+function buildBoard() {
+  // Suelo general (pasillos)
+  const floorGeo = new THREE.PlaneGeometry(26, 26);
+
+  const floorCanvas = document.createElement('canvas');
+  floorCanvas.width = 512; floorCanvas.height = 512;
+  const fctx = floorCanvas.getContext('2d');
+  fctx.fillStyle = '#080810';
+  fctx.fillRect(0, 0, 512, 512);
+  // Grid de pasillos
+  fctx.strokeStyle = 'rgba(255,255,200,0.06)';
+  fctx.lineWidth = 1;
+  for (let i = 0; i <= 512; i += 512/26) {
+    fctx.beginPath(); fctx.moveTo(i, 0); fctx.lineTo(i, 512); fctx.stroke();
+    fctx.beginPath(); fctx.moveTo(0, i); fctx.lineTo(512, i); fctx.stroke();
+  }
+  const floorTex = new THREE.CanvasTexture(floorCanvas);
+  floorTex.wrapS = THREE.RepeatWrapping;
+  floorTex.wrapT = THREE.RepeatWrapping;
+
+  const floorMat = new THREE.MeshStandardMaterial({
+    map: floorTex,
+    roughness: 0.9,
+    metalness: 0.1,
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Borde exterior del tablero
+  const borderGeo = new THREE.BoxGeometry(27, 0.15, 27);
+  const borderMat = new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.8 });
+  const border = new THREE.Mesh(borderGeo, borderMat);
+  border.position.y = -0.08;
+  border.receiveShadow = true;
+  scene.add(border);
+
+  // Marco dorado exterior
+  const framePoints = [];
+  const hw = 13.5;
+  framePoints.push(
+    new THREE.Vector3(-hw, 0.1,  hw),
+    new THREE.Vector3( hw, 0.1,  hw),
+    new THREE.Vector3( hw, 0.1, -hw),
+    new THREE.Vector3(-hw, 0.1, -hw),
+    new THREE.Vector3(-hw, 0.1,  hw),
+  );
+  const frameLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(framePoints),
+    new THREE.LineBasicMaterial({ color: 0xb8960c, linewidth: 2 })
+  );
+  scene.add(frameLine);
+
+  // Habitaciones
+  ROOMS.forEach(room => {
+    const roomGroup = new THREE.Group();
+
+    // Suelo de la habitación con textura
+    const roomFloorGeo = new THREE.BoxGeometry(7, 0.18, 7);
+    const roomTex = makeRoomTexture(room);
+    const roomFloorMat = new THREE.MeshStandardMaterial({
+      map: roomTex,
+      roughness: 0.85,
+      metalness: 0.05,
+    });
+    const roomFloor = new THREE.Mesh(roomFloorGeo, roomFloorMat);
+    roomFloor.receiveShadow = true;
+    roomGroup.add(roomFloor);
+
+    // Paredes bajas alrededor de la habitación
+    const wallTex = makeWallTexture(room.accent);
+    const wallMat = new THREE.MeshStandardMaterial({
+      map: wallTex,
+      roughness: 0.9,
+    });
+    const wallH = 0.5;
+    const wallThick = 0.15;
+    [
+      { w: 7, d: wallThick, x: 0,        z:  3.5 + wallThick / 2 },
+      { w: 7, d: wallThick, x: 0,        z: -3.5 - wallThick / 2 },
+      { w: wallThick, d: 7, x:  3.5 + wallThick / 2, z: 0 },
+      { w: wallThick, d: 7, x: -3.5 - wallThick / 2, z: 0 },
+    ].forEach(w => {
+      const wGeo = new THREE.BoxGeometry(w.w, wallH, w.d);
+      const wMesh = new THREE.Mesh(wGeo, wallMat);
+      wMesh.position.set(w.x, wallH / 2 + 0.09, w.z);
+      wMesh.castShadow = true;
+      wMesh.receiveShadow = true;
+      roomGroup.add(wMesh);
+    });
+
+    // Luz de acento puntual dentro de la habitación
+    const pointLight = new THREE.PointLight(room.accent, 0.8, 6);
+    pointLight.position.set(0, 2, 0);
+    roomGroup.add(pointLight);
+
+    // Líneas de borde brillantes en el suelo
+    const accentColor = new THREE.Color(room.accent);
+    const edgePoints = [
+      new THREE.Vector3(-3.5, 0.1,  3.5),
+      new THREE.Vector3( 3.5, 0.1,  3.5),
+      new THREE.Vector3( 3.5, 0.1, -3.5),
+      new THREE.Vector3(-3.5, 0.1, -3.5),
+      new THREE.Vector3(-3.5, 0.1,  3.5),
+    ];
+    const edgeLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(edgePoints),
+      new THREE.LineBasicMaterial({ color: accentColor })
+    );
+    roomGroup.add(edgeLine);
+
+    roomGroup.position.set(room.x, 0, room.z);
+    scene.add(roomGroup);
+  });
+
+  // Separadores de pasillo (líneas entre habitaciones)
+  const corridorMat = new THREE.LineBasicMaterial({ color: 0x3a3020, opacity: 0.5, transparent: true });
+  [-4, 4].forEach(offset => {
+    const hLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-13, 0.05, offset),
+        new THREE.Vector3( 13, 0.05, offset),
+      ]), corridorMat
+    );
+    scene.add(hLine);
+    const vLine = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(offset, 0.05, -13),
+        new THREE.Vector3(offset, 0.05,  13),
+      ]), corridorMat
+    );
+    scene.add(vLine);
+  });
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────────
+const TOKEN_OFFSETS = [
+  [0, 0], [-0.8, 0], [0.8, 0],
+  [0, -0.8], [-0.8, -0.8], [0.8, -0.8],
+];
+
+const tokenMeshes = {};
+
+function buildToken(hexColor) {
+  const color = parseInt(hexColor.replace('#', 'FF'), 16) & 0xFFFFFF;
+  const group = new THREE.Group();
+
+  const mat = new THREE.MeshStandardMaterial({
+    color: color,
+    metalness: 0.8,
+    roughness: 0.2,
+    emissive: color,
+    emissiveIntensity: 0.15,
+  });
+
+  // Base
+  const baseGeo = new THREE.CylinderGeometry(0.3, 0.35, 0.12, 20);
+  const base = new THREE.Mesh(baseGeo, mat);
+  base.castShadow = true;
+  group.add(base);
+
+  // Cuerpo
+  const bodyGeo = new THREE.CylinderGeometry(0.18, 0.28, 0.55, 20);
+  const body = new THREE.Mesh(bodyGeo, mat);
+  body.position.y = 0.33;
+  body.castShadow = true;
+  group.add(body);
+
+  // Cabeza
+  const headGeo = new THREE.SphereGeometry(0.2, 20, 20);
+  const head = new THREE.Mesh(headGeo, mat);
+  head.position.y = 0.72;
+  head.castShadow = true;
+  group.add(head);
+
+  // Halo de luz
+  const halo = new THREE.PointLight(color, 0.6, 1.5);
+  halo.position.y = 0.5;
+  group.add(halo);
+
+  return group;
+}
+
+function syncPlayers(players) {
+  players.forEach((player) => {
+    let mesh = tokenMeshes[player.id];
+    if (!mesh) {
+      mesh = buildToken(player.hexColor);
+      scene.add(mesh);
+      tokenMeshes[player.id] = mesh;
+    }
+
+    mesh.visible = !player.isEliminated;
+
+    if (player.roomId && ROOM_POSITIONS[player.roomId]) {
+      const [rx, rz] = ROOM_POSITIONS[player.roomId];
+      const inRoom = players.filter(p => p.roomId === player.roomId);
+      const idx = inRoom.findIndex(p => p.id === player.id);
+      const off = TOKEN_OFFSETS[idx] || [0, 0];
+      mesh.position.set(rx + off[0], 0.5, rz + off[1]);
+    } else {
+      mesh.position.set(player.x - 12, 0.5, player.y - 12);
+    }
+  });
+}
+
+// ── Comunicación Flutter ↔ JS ─────────────────────────────────────────────────
+function notifyReady() {
+  if (window.FlutterChannel) {
+    window.FlutterChannel.postMessage(JSON.stringify({ type: 'ready' }));
+  }
+}
+
+window.updateGameState = function(jsonStr) {
+  try {
+    const state = JSON.parse(jsonStr);
+    if (state.players) syncPlayers(state.players);
+  } catch(e) {
+    console.error('updateGameState error:', e);
+  }
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+buildBoard();
+notifyReady();
+
+// ── Resize ────────────────────────────────────────────────────────────────────
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Animación ─────────────────────────────────────────────────────────────────
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Pulso suave en los halos de los tokens
+  Object.values(tokenMeshes).forEach((mesh, i) => {
+    const halo = mesh.children.find(c => c.isLight);
+    if (halo) halo.intensity = 0.4 + 0.2 * Math.sin(t * 2 + i);
+  });
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>

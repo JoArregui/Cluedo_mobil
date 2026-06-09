@@ -99,7 +99,7 @@ class _DetectiveNotebookWidgetState extends State<DetectiveNotebookWidget> {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: cards.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final card = cards[index];
         final state = _notes[card.id];

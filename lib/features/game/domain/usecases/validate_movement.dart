@@ -8,6 +8,8 @@ class ValidateMovement {
 
   const ValidateMovement({this.boardMap = const BoardMap()});
 
+  /// Determina si un movimiento desde la posición actual hasta el objetivo es legal
+  /// basándose en los dados y las restricciones del tablero.
   bool call({
     required ClueGameState gameState,
     required Position target,
@@ -17,17 +19,21 @@ class ValidateMovement {
 
     if (maxSteps == null) return false;
 
+    // 1. Verificación básica de tipo de casilla destino
     final targetTileType = boardMap.getTileType(target.x, target.y);
     if (targetTileType == TileType.wall) return false;
 
+    // 2. No permitir quedarse en la misma casilla
     if (start.x == target.x && start.y == target.y && start.roomId == target.roomId) {
       return false;
     }
 
+    // 3. Lógica específica si el destino es una habitación (se requiere llegar a una puerta)
     if (target.roomId != null) {
       return _canEnterRoom(start, target, maxSteps, gameState);
     }
 
+    // 4. Lógica para movimiento por pasillos (Shortest Path via BFS)
     return _calculateShortestPath(start, target, maxSteps, gameState);
   }
 
@@ -41,7 +47,6 @@ class ValidateMovement {
       {'x': start.x, 'y': start.y, 'steps': 0}
     ];
 
-    // Mapeo de posiciones ocupadas por otros jugadores en pasillos (bloqueos tácticos)
     final Set<String> occupiedTiles = gameState.players
         .where((p) => p.position.roomId == null)
         .map((p) => '${p.position.x},${p.position.y}')
@@ -83,11 +88,14 @@ class ValidateMovement {
     final doors = boardMap.getDoorsForRoom(target.roomId!);
     
     for (var door in doors) {
+      // Si ya estás en la puerta, puedes entrar
       if (start.x == door.x && start.y == door.y) {
         return true; 
       }
 
+      // Si hay un camino desde la posición actual hasta una de las puertas de la sala
       final stepsToDoor = _getDistanceToDoor(start, door, maxSteps, gameState);
+      // El "+1" representa el paso final para entrar a la habitación desde la puerta
       if (stepsToDoor != -1 && (stepsToDoor + 1) <= maxSteps) {
         return true; 
       }

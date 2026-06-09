@@ -1,13 +1,8 @@
 import 'character.dart';
 import 'card.dart';
+import 'board_map.dart'; // Asegúrate de importar tu clase BoardMap
 
-enum GamePhase {
-  rolling,
-  moving,
-  suggesting,
-  refuting,
-  gameOver
-}
+enum GamePhase { rolling, moving, suggesting, refuting, narrative, gameOver }
 
 class CaseSolution {
   final CharacterCard character;
@@ -28,37 +23,42 @@ class ClueGameState {
   final GamePhase phase;
   final List<int> lastDiceRoll;
   final int? currentDiceResult;
-  final List<ClueCard> totalDeck; // Añadido para mantener la referencia a todas las cartas del CMS
-  
-  final int? refutingPlayerIndex; 
-  final List<ClueCard>? currentSuggestion; 
+  final List<ClueCard> totalDeck;
+  final int? refutingPlayerIndex;
+  final List<ClueCard>? currentSuggestion;
+  final BoardMap boardMap;
+  final RoomCard? currentRoomForNarrative; // Campo necesario para el renderizado
 
   const ClueGameState({
     required this.players,
     required this.currentTurnIndex,
     required this.solution,
     required this.phase,
-    required this.totalDeck, // Requerido en el constructor estructurado
+    required this.totalDeck,
+    required this.boardMap,
     this.lastDiceRoll = const [0, 0],
     this.currentDiceResult,
     this.refutingPlayerIndex,
     this.currentSuggestion,
+    this.currentRoomForNarrative,
   });
 
   factory ClueGameState.initial({
     required List<ClueCard> totalDeck,
     required List<ClueCard> envelope,
+    required BoardMap boardMap, // Añadido
   }) {
     final character = envelope.firstWhere((c) => c.type == CardType.character) as CharacterCard;
     final weapon = envelope.firstWhere((c) => c.type == CardType.weapon) as WeaponCard;
     final room = envelope.firstWhere((c) => c.type == CardType.room) as RoomCard;
 
     return ClueGameState(
-      players: const [], 
+      players: const [],
       currentTurnIndex: 0,
       solution: CaseSolution(character: character, weapon: weapon, room: room),
       phase: GamePhase.rolling,
       totalDeck: totalDeck,
+      boardMap: boardMap, // Asignado
     );
   }
 
@@ -74,6 +74,7 @@ class ClueGameState {
     List<ClueCard>? totalDeck,
     int? refutingPlayerIndex,
     List<ClueCard>? currentSuggestion,
+    BoardMap? boardMap,
   }) {
     return ClueGameState(
       players: players ?? this.players,
@@ -85,6 +86,7 @@ class ClueGameState {
       totalDeck: totalDeck ?? this.totalDeck,
       refutingPlayerIndex: refutingPlayerIndex ?? this.refutingPlayerIndex,
       currentSuggestion: currentSuggestion ?? this.currentSuggestion,
+      boardMap: boardMap ?? this.boardMap,
     );
   }
 }

@@ -9,11 +9,15 @@ abstract class GameBlocEvent extends Equatable {
 
 class StartNewGameEvent extends GameBlocEvent {
   final int numberOfPlayers;
+  final String selectedCharacterId; // ID del personaje elegido por el usuario
 
-  const StartNewGameEvent({required this.numberOfPlayers});
+  const StartNewGameEvent({
+    required this.numberOfPlayers, 
+    required this.selectedCharacterId,
+  });
 
   @override
-  List<Object?> get props => [numberOfPlayers];
+  List<Object?> get props => [numberOfPlayers, selectedCharacterId];
 }
 
 class RollDiceEvent extends GameBlocEvent {}
@@ -30,6 +34,8 @@ class MoveCharacterEvent extends GameBlocEvent {
 }
 
 class UseSecretPassageEvent extends GameBlocEvent {}
+
+class CloseNarrativeEvent extends GameBlocEvent {}
 
 class MakeSuggestionEvent extends GameBlocEvent {
   final CharacterCard suspect;

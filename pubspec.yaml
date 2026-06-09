@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   flutter_bloc: ^9.1.1
+  flutter_inappwebview: ^6.1.5
 
 dev_dependencies:
   flutter_test:
@@ -19,3 +20,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/cluedo_board.glb
+    - assets/token.glb
+    - assets/environment.hdr
+    - assets/board3d.html
+  shaders:
+    - assets/shaders/fog_of_war.frag

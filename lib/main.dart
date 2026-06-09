@@ -1,14 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/services.dart'; // Importante para la orientación y control de UI
 
-// Imports de la Capa de Datos y Dominio para la inyección de dependencias
 import 'features/game/data/datasources/game_cms_data_source.dart';
 import 'features/game/data/repositories/game_repository_impl.dart';
 import 'features/game/presentation/bloc/game_bloc.dart';
-import 'features/game/presentation/pages/game_board_page.dart';
+import 'features/game/presentation/pages/main_menu_page.dart';
 
-void main() {
+void main() async {
+  // Aseguramos la inicialización de los bindings y los servicios nativos
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Bloqueamos la orientación en modo vertical (retrato) para evitar rotaciones
+  // inesperadas que afecten la experiencia de juego
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
+  
   runApp(const ClueApp());
 }
 
@@ -17,14 +26,13 @@ class ClueApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Inicializamos de forma limpia las dependencias de la infraestructura
-    final gameCmsDataSource = GameCmsDataSourceImpl(); // O la clase concreta de tu DataSource
+    // Definición de dependencias
+    final gameCmsDataSource = GameCmsDataSourceImpl();
     final gameRepository = GameRepositoryImpl(cmsDataSource: gameCmsDataSource);
 
     return MultiBlocProvider(
       providers: [
         BlocProvider<GameBloc>(
-          // 2. Inyectamos el repositorio requerido al inicializar el BLoC
           create: (context) => GameBloc(gameRepository: gameRepository),
         ),
       ],
@@ -33,10 +41,11 @@ class ClueApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
-          colorSchemeSeed: Colors.blueGrey, // Material 3 prefiere colorSchemeSeed antes que primarySwatch
-          scaffoldBackgroundColor: Colors.grey[100],
+          colorSchemeSeed: Colors.blueGrey,
+          // Un fondo oscuro ayuda a ocultar parpadeos en el renderizado 3D inicial
+          scaffoldBackgroundColor: const Color(0xFF0D0F14),
         ),
-        home: const GameBoardPage(),
+        home: const MainMenuPage(),
       ),
     );
   }

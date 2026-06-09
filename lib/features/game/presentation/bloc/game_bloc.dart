@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
@@ -12,6 +13,7 @@ part 'game_event.dart';
 
 class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
   final GameRepository gameRepository;
+  final Random _random = Random();
 
   GameBloc({required this.gameRepository}) : super(GameInitial()) {
     on<StartNewGameEvent>(_onStartNewGame);
@@ -20,6 +22,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     on<MakeSuggestionEvent>(_onMakeSuggestion);
     on<RefuteSuggestionEvent>(_onRefuteSuggestion);
     on<MakeAccusationEvent>(_onMakeAccusation);
+    on<UseSecretPassageEvent>(_onUseSecretPassage);
   }
 
   Future<void> _onStartNewGame(
@@ -27,58 +30,53 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     Emitter<GameBlocState> emit,
   ) async {
     emit(GameLoading());
-    // Permite que la pantalla dibuje el estado "GameLoading" antes de procesar el algoritmo
     await Future.delayed(Duration.zero);
     try {
-      print("1");
       final initialGameState = await gameRepository.initializeCmsGame(
         numberOfPlayers: event.numberOfPlayers,
       );
 
-      final List<PlayerCharacter> gamePlayers = [
-        const PlayerCharacter(
-          card: CharacterCard(
-            id: 'scarlett',
-            nameEs: 'Amapola',
-            nameEn: 'Miss Scarlett',
-            hexColor: '#E63946',
-          ),
-          position: Position(x: 7, y: 24),
+      final List<Position> spawnPoints = [
+        const Position(x: 7, y: 23, roomId: null),
+        const Position(x: 0, y: 17, roomId: null),
+        const Position(x: 14, y: 0, roomId: null),
+        const Position(x: 23, y: 7, roomId: null),
+      ];
+      spawnPoints.shuffle(_random);
+
+      final List<PlayerCharacter> allCharacters = [
+        PlayerCharacter(
+          card: const CharacterCard(id: 'scarlett', nameEs: 'Amapola', nameEn: 'Miss Scarlett', hexColor: '#E63946'),
+          position: spawnPoints[0],
           isBot: false,
           hand: [],
         ),
-        const PlayerCharacter(
-          card: CharacterCard(
-            id: 'mustard',
-            nameEs: 'Pradillo',
-            nameEn: 'Colonel Mustard',
-            hexColor: '#FFB703',
-          ),
-          position: Position(x: 0, y: 17),
+        PlayerCharacter(
+          card: const CharacterCard(id: 'mustard', nameEs: 'Pradillo', nameEn: 'Colonel Mustard', hexColor: '#FFB703'),
+          position: spawnPoints[1],
           isBot: true,
           hand: [],
         ),
-        const PlayerCharacter(
-          card: CharacterCard(
-            id: 'green',
-            nameEs: 'Verdi',
-            nameEn: 'Reverend Green',
-            hexColor: '#2A9D8F',
-          ),
-          position: Position(x: 14, y: 0),
+        PlayerCharacter(
+          card: const CharacterCard(id: 'green', nameEs: 'Verdi', nameEn: 'Reverend Green', hexColor: '#2A9D8F'),
+          position: spawnPoints[2],
           isBot: true,
           hand: [],
         ),
       ];
-      print("2");
+
+      final mainPlayer = allCharacters.firstWhere((p) => p.card.id == event.selectedCharacterId);
+      final bots = allCharacters.where((p) => p.card.id != event.selectedCharacterId).toList();
+      final List<PlayerCharacter> gamePlayers = [mainPlayer, ...bots];
+
       final remainingCards = initialGameState.totalDeck.where((card) {
         return card.id != initialGameState.solution.character.id &&
             card.id != initialGameState.solution.weapon.id &&
             card.id != initialGameState.solution.room.id;
       }).toList();
+      remainingCards.shuffle(_random);
 
       int playerIndex = 0;
-      print("3");
       while (remainingCards.isNotEmpty) {
         final card = remainingCards.removeLast();
         gamePlayers[playerIndex] = gamePlayers[playerIndex].copyWith(
@@ -86,7 +84,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
         );
         playerIndex = (playerIndex + 1) % gamePlayers.length;
       }
-      print("4");
+
       emit(
         GamePlayReady(
           gameState: initialGameState.copyWith(
@@ -94,11 +92,9 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             currentTurnIndex: 0,
             phase: GamePhase.rolling,
           ),
-          notificationMessage:
-              "¡La mansión Tudor ha sido cerrada! Investiga las habitaciones.",
+          notificationMessage: "¡La mansión Tudor ha sido cerrada! Investiga las habitaciones.",
         ),
       );
-      print("5");
     } catch (e) {
       emit(GameInitial());
     }
@@ -109,8 +105,8 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.rolling) return;
 
-      final dice1 = (DateTime.now().microsecondsSinceEpoch % 6) + 1;
-      final dice2 = (DateTime.now().millisecondsSinceEpoch % 6) + 1;
+      final dice1 = _random.nextInt(6) + 1;
+      final dice2 = _random.nextInt(6) + 1;
       final total = dice1 + dice2;
 
       emit(
@@ -120,8 +116,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             currentDiceResult: total,
             phase: GamePhase.moving,
           ),
-          notificationMessage:
-              "Has obtenido un $total en los dados. Elige tu destino.",
+          notificationMessage: "Has obtenido un $total en los dados. Elige tu destino.",
         ),
       );
     }
@@ -140,16 +135,11 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       );
 
       final enHabitacion = event.roomId != null;
-      final proximaFase = enHabitacion
-          ? GamePhase.suggesting
-          : GamePhase.rolling;
+      final proximaFase = enHabitacion ? GamePhase.suggesting : GamePhase.rolling;
       int siguienteTurno = currentState.currentTurnIndex;
 
       if (!enHabitacion) {
-        siguienteTurno = _calcularSiguienteTurnoValido(
-          currentState.currentTurnIndex,
-          updatedPlayers,
-        );
+        siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, updatedPlayers);
       }
 
       emit(
@@ -158,9 +148,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             players: updatedPlayers,
             phase: proximaFase,
             currentTurnIndex: siguienteTurno,
-            currentDiceResult: enHabitacion
-                ? currentState.currentDiceResult
-                : null,
+            currentDiceResult: enHabitacion ? currentState.currentDiceResult : null,
           ),
           notificationMessage: enHabitacion
               ? "Has entrado a la sala. Puedes formular una hipótesis o pasar."
@@ -170,10 +158,51 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     }
   }
 
-  void _onMakeSuggestion(
-    MakeSuggestionEvent event,
-    Emitter<GameBlocState> emit,
-  ) {
+  void _onUseSecretPassage(UseSecretPassageEvent event, Emitter<GameBlocState> emit) {
+    if (state is GamePlayReady) {
+      final currentState = (state as GamePlayReady).gameState;
+      if (currentState.phase != GamePhase.rolling) return;
+
+      final player = currentState.currentCharacter;
+      final roomId = player.position.roomId;
+      if (roomId == null) return;
+
+      final secretPassages = {
+        'study': 'kitchen',
+        'kitchen': 'study',
+        'lounge': 'conservatory',
+        'conservatory': 'lounge',
+      };
+
+      final destination = secretPassages[roomId];
+      if (destination == null) return;
+
+      final updatedPlayers = List<PlayerCharacter>.from(currentState.players);
+      final int index = currentState.currentTurnIndex;
+
+      updatedPlayers[index] = updatedPlayers[index].copyWith(
+        position: Position(
+          x: player.position.x,
+          y: player.position.y,
+          roomId: destination,
+        ),
+      );
+
+      emit(
+        GamePlayReady(
+          gameState: currentState.copyWith(
+            players: updatedPlayers,
+            phase: GamePhase.suggesting,
+            currentTurnIndex: currentState.currentTurnIndex,
+            currentDiceResult: null,
+          ),
+          notificationMessage: "Has utilizado el pasaje secreto para moverte a la $destination.",
+        ),
+      );
+    }
+  }
+
+  void _onMakeSuggestion(MakeSuggestionEvent event, Emitter<GameBlocState> emit) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.suggesting) return;
@@ -181,12 +210,9 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final currentRoomId = currentState.currentCharacter.position.roomId;
       if (currentRoomId == null) return;
 
-      final roomCard = currentState.totalDeck.firstWhere(
-        (c) => c.id == currentRoomId,
-      );
+      final roomCard = currentState.totalDeck.firstWhere((c) => c.id == currentRoomId);
       final List<ClueCard> sugerencia = [event.suspect, event.weapon, roomCard];
-      final primerRefutador =
-          (currentState.currentTurnIndex + 1) % currentState.players.length;
+      final primerRefutador = (currentState.currentTurnIndex + 1) % currentState.players.length;
 
       emit(
         GamePlayReady(
@@ -195,17 +221,13 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             currentSuggestion: sugerencia,
             refutingPlayerIndex: primerRefutador,
           ),
-          notificationMessage:
-              "${currentState.currentCharacter.card.nameEs} sospecha de ${event.suspect.nameEs} con el ${event.weapon.nameEs}.",
+          notificationMessage: "${currentState.currentCharacter.card.nameEs} sospecha de ${event.suspect.nameEs} con el ${event.weapon.nameEs}.",
         ),
       );
     }
   }
 
-  void _onRefuteSuggestion(
-    RefuteSuggestionEvent event,
-    Emitter<GameBlocState> emit,
-  ) {
+  void _onRefuteSuggestion(RefuteSuggestionEvent event, Emitter<GameBlocState> emit) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.refuting) return;
@@ -213,11 +235,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final refutadorActualIdx = currentState.refutingPlayerIndex!;
 
       if (event.matchingCard != null) {
-        final siguienteTurno = _calcularSiguienteTurnoValido(
-          currentState.currentTurnIndex,
-          currentState.players,
-        );
-
+        final siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, currentState.players);
         emit(
           GamePlayReady(
             gameState: currentState.copyWith(
@@ -227,21 +245,16 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
               refutingPlayerIndex: null,
               currentDiceResult: null,
             ),
-            notificationMessage:
-                "${currentState.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
+            notificationMessage: "${currentState.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
           ),
         );
         return;
       }
 
-      final siguienteRefutador =
-          (refutadorActualIdx + 1) % currentState.players.length;
+      final siguienteRefutador = (refutadorActualIdx + 1) % currentState.players.length;
 
       if (siguienteRefutador == currentState.currentTurnIndex) {
-        final siguienteTurno = _calcularSiguienteTurnoValido(
-          currentState.currentTurnIndex,
-          currentState.players,
-        );
+        final siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, currentState.players);
         emit(
           GamePlayReady(
             gameState: currentState.copyWith(
@@ -251,28 +264,21 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
               refutingPlayerIndex: null,
               currentDiceResult: null,
             ),
-            notificationMessage:
-                "Nadie ha podido refutar la sospecha. ¡Las pistas parecen sólidas!",
+            notificationMessage: "Nadie ha podido refutar la sospecha. ¡Las pistas parecen sólidas!",
           ),
         );
       } else {
         emit(
           GamePlayReady(
-            gameState: currentState.copyWith(
-              refutingPlayerIndex: siguienteRefutador,
-            ),
-            notificationMessage:
-                "${currentState.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
+            gameState: currentState.copyWith(refutingPlayerIndex: siguienteRefutador),
+            notificationMessage: "${currentState.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
           ),
         );
       }
     }
   }
 
-  void _onMakeAccusation(
-    MakeAccusationEvent event,
-    Emitter<GameBlocState> emit,
-  ) {
+  void _onMakeAccusation(MakeAccusationEvent event, Emitter<GameBlocState> emit) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       final solucion = currentState.solution;
@@ -296,9 +302,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
           isEliminated: true,
         );
 
-        final bool todosEliminados = updatedPlayers.every(
-          (p) => p.isEliminated,
-        );
+        final bool todosEliminados = updatedPlayers.every((p) => p.isEliminated);
 
         if (todosEliminados) {
           emit(
@@ -307,16 +311,11 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
                 players: updatedPlayers,
                 phase: GamePhase.gameOver,
               ),
-              notificationMessage:
-                  "Todos los investigadores han fallado. El asesino escapó. Solución: ${solucion.character.nameEs} con el ${solucion.weapon.nameEs} en el ${solucion.room.nameEs}.",
+              notificationMessage: "Todos los investigadores han fallado. El asesino escapó.",
             ),
           );
         } else {
-          final siguienteTurno = _calcularSiguienteTurnoValido(
-            currentState.currentTurnIndex,
-            updatedPlayers,
-          );
-
+          final siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, updatedPlayers);
           emit(
             GamePlayReady(
               gameState: currentState.copyWith(
@@ -325,8 +324,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
                 phase: GamePhase.rolling,
                 currentDiceResult: null,
               ),
-              notificationMessage:
-                  "La acusación de ${currentState.currentCharacter.card.nameEs} era errónea. Ha quedado fuera de la investigación.",
+              notificationMessage: "La acusación de ${currentState.currentCharacter.card.nameEs} era errónea. Ha quedado fuera.",
             ),
           );
         }

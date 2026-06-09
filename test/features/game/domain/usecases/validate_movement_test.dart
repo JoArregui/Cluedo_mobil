@@ -44,6 +44,7 @@ void main() {
     required List<PlayerCharacter> players,
     required int? currentDiceResult,
     required List<int> lastDiceRoll,
+    BoardMap? boardMap,
   }) {
     return ClueGameState(
       players: players,
@@ -52,7 +53,8 @@ void main() {
       phase: GamePhase.moving,
       currentDiceResult: currentDiceResult,
       lastDiceRoll: lastDiceRoll,
-      totalDeck: const [], // Corregido: Se añade el mazo requerido por el dominio
+      totalDeck: const [],
+      boardMap: boardMap ?? const BoardMap(), // Corregido: Se añade el mapa requerido por el dominio
     );
   }
 
