@@ -73,6 +73,8 @@ class _Board3DWidgetState extends State<Board3DWidget> {
                   }
                 } else if (msg['type'] == 'gridClick') {
                   _handleGridClick(msg);
+                } else if (msg['type'] == 'rollDice') {
+                  _handleRollDice();
                 }
               } catch (e) {
                 // ignore
@@ -140,9 +142,15 @@ class _Board3DWidgetState extends State<Board3DWidget> {
       validRoomIds = result['roomIds'] as List<String>;
     }
 
+    final isHumanRolling = gameState.phase == GamePhase.rolling &&
+        gameState.currentTurnIndex == 0;
+
     // Construir payload: incluir validTiles y validRoomIds solo en fase moving del humano
     final Map<String, dynamic> payload = {
       'players': players,
+      'phase': gameState.phase.name,
+      'showDice': isHumanRolling,
+      'lastDiceRoll': gameState.lastDiceRoll,
     };
     if (gameState.phase == GamePhase.moving &&
         gameState.currentTurnIndex == 0) {
@@ -207,38 +215,63 @@ class _Board3DWidgetState extends State<Board3DWidget> {
     return {'tiles': tiles, 'roomIds': roomIds};
   }
 
+  void _handleRollDice() {
+    final state = context.read<GameBloc>().state;
+    if (state is! GamePlayReady) return;
+
+    final gameState = state.gameState;
+    if (gameState.currentTurnIndex != 0) return;
+    if (gameState.phase != GamePhase.rolling) return;
+
+    context.read<GameBloc>().add(RollDiceEvent());
+  }
+
   void _handleGridClick(Map<String, dynamic> msg) {
     if (_webController == null || !_webReady) return;
 
     try {
-      final x = msg['x'] as int?;
-      final y = msg['y'] as int?;
-      if (x != null && y != null) {
-        final state = context.read<GameBloc>().state;
-        if (state is GamePlayReady) {
-          final gameState = state.gameState;
-          final currentPlayerIndex = gameState.currentTurnIndex;
+      // FIX: flutter_inappwebview deserializa números JSON como num, no como int.
+      // Usar (msg['x'] as num).toInt() para evitar el cast silencioso que fallaba.
+      final x = (msg['x'] as num?)?.toInt();
+      final y = (msg['y'] as num?)?.toInt();
+      if (x == null || y == null) return;
 
-          // Checar que el jugador actual es el humano y que estamos en la fase de movimiento
-          final currentPlayer = gameState.players[currentPlayerIndex];
-          final currentPlayerId = currentPlayer.card.id;
+      final state = context.read<GameBloc>().state;
+      if (state is! GamePlayReady) return;
 
-          if (currentPlayerId == gameState.currentCharacter.card.id &&
-              gameState.phase == GamePhase.moving) {
-            // Validate the move
-            final validator = ValidateMovement();
-            final isValid = validator.call(
-              gameState: gameState,
-              target: Position(x: x, y: y, roomId: null),
-            );
+      final gameState = state.gameState;
 
-            if (isValid) {
-              context.read<GameBloc>().add(
-                MoveCharacterEvent(x: x, y: y, roomId: null),
-              );
-            }
-          }
-        }
+      // Solo procesar si es el turno humano (índice 0) y estamos en fase de movimiento
+      if (gameState.currentTurnIndex != 0) return;
+      if (gameState.phase != GamePhase.moving) return;
+
+      // FIX: detectar si el tile clickado pertenece a una habitación para pasar
+      // el roomId correcto a ValidateMovement. Antes siempre se pasaba roomId: null,
+      // lo que hacía que los clicks sobre habitaciones alcanzables (highlight verde)
+      // siempre fallaran la validación.
+      const boardMap = BoardMap();
+      final tileType = boardMap.getTileType(x, y);
+      final String? roomId = boardMap.getRoomIdAt(x, y);
+
+      // Si el tile es de tipo room, mover a esa habitación con su roomId.
+      // Si es pasillo o puerta, mover a la casilla exacta sin roomId.
+      final Position target;
+      if (tileType == TileType.room && roomId != null) {
+        target = Position(x: x, y: y, roomId: roomId);
+      } else {
+        target = Position(x: x, y: y, roomId: null);
+      }
+
+      final validator = ValidateMovement(boardMap: boardMap);
+      final isValid = validator.call(
+        gameState: gameState,
+        target: target,
+      );
+
+      if (isValid) {
+        context.read<GameBloc>().add(
+          MoveCharacterEvent(x: x, y: y, roomId: target.roomId),
+        );
       }
     } catch (e) {
       // ignore grid click errors

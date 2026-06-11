@@ -34,6 +34,7 @@ class _GameBoardPageState extends State<GameBoardPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF0D0F14),
+      // Se eliminó el BlocListener ya que _showDiceOverlay no se utilizaba
       body: BlocBuilder<GameBloc, GameBlocState>(
         builder: (context, state) {
           if (state is GameInitial) return const StartGameView();
@@ -46,7 +47,6 @@ class _GameBoardPageState extends State<GameBoardPage> {
 
           if (state is GamePlayReady) {
             final gameState = state.gameState;
-            // Captura local para permitir la promoción de tipo del campo público
             final roomNarrative = gameState.currentRoomForNarrative;
 
             return SafeArea(
@@ -60,17 +60,14 @@ class _GameBoardPageState extends State<GameBoardPage> {
                   Expanded(
                     child: Stack(
                       children: [
-                        // Capa base 3D
-                        Positioned.fill(child: const Board3DWidget()),
+                        const Positioned.fill(child: Board3DWidget()),
 
-                        // Botón flotante del cuaderno
                         const Positioned(
                           right: 16,
                           bottom: 16,
                           child: NotebookFloatingButton(),
                         ),
 
-                        // Capa de Aventura Gráfica (Overlay dinámico)
                         if (gameState.phase == GamePhase.narrative &&
                             roomNarrative != null)
                           RoomNarrativeOverlay(

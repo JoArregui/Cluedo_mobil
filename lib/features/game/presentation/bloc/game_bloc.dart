@@ -39,6 +39,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     on<MakeAccusationEvent>(_onMakeAccusation);
     on<UseSecretPassageEvent>(_onUseSecretPassage);
     on<PassTurnEvent>(_onPassTurn);
+    on<EndGameEvent>(_onEndGame);
   }
 
   @override
@@ -636,5 +637,12 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
         );
       }
     }
+  }
+
+  void _onEndGame(EndGameEvent event, Emitter<GameBlocState> emit) {
+    _botMemories.clear();
+    _pendingBotSuggestion = null;
+    _isBotTurnInProgress = false;
+    emit(const GameInitial());
   }
 }

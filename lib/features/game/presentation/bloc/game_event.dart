@@ -77,3 +77,10 @@ class PassTurnEvent extends GameBlocEvent {
   @override
   List<Object?> get props => [];
 }
+
+class EndGameEvent extends GameBlocEvent {
+  const EndGameEvent();
+
+  @override
+  List<Object?> get props => [];
+}
