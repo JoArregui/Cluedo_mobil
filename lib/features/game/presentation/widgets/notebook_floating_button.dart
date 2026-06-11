@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../bloc/game_bloc.dart';
 import 'detective_notebook_widget.dart';
-import '../../domain/entities/card.dart'; // Asegúrate de importar el tipo base
+import '../../domain/entities/card.dart'; 
 
 class NotebookFloatingButton extends StatelessWidget {
   const NotebookFloatingButton({super.key});

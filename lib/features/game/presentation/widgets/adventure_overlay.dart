@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 class AdventureOverlay extends StatelessWidget {
   final String title;
   final String message;
-  final String? imagePath; // Opcional, para cargar la imagen del CMS
+  final String? imagePath; 
   final VoidCallback onClose;
 
   const AdventureOverlay({

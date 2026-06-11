@@ -16,7 +16,7 @@ class ClueCardRender extends StatelessWidget {
     Color cardColor;
     IconData cardIcon;
 
-    // Asignación dinámica de estilos según las reglas del CMS del juego
+    // Asignación dinámica de estilos según las reglas del juego
     switch (card.type) {
       case CardType.character:
         cardColor = Colors.red[900]!;
@@ -29,6 +29,10 @@ class ClueCardRender extends StatelessWidget {
       case CardType.room:
         cardColor = Colors.brown[700]!;
         cardIcon = Icons.gite_rounded;
+        break;
+      case CardType.clue:
+        cardColor = Colors.purple[700]!;
+        cardIcon = Icons.lightbulb_outline;
         break;
     }
 
@@ -54,7 +58,6 @@ class ClueCardRender extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: Stack(
           children: [
-            // Fondo decorativo abstracto (Reemplaza la necesidad de un asset físico)
             Positioned(
               right: -20,
               bottom: -20,

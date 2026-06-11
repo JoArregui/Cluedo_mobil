@@ -62,14 +62,6 @@ class _GameBoardPageState extends State<GameBoardPage> {
                       children: [
                         // Capa base 3D
                         Positioned.fill(child: const Board3DWidget()),
-                        /* LayoutBuilder(
-                          builder: (context, constraints) {
-                            if (constraints.maxHeight <= 0 || constraints.maxWidth <= 0) {
-                              return const Center(child: CircularProgressIndicator());
-                            }
-                            return const Board3DWidget();
-                          },
-                        ), */
 
                         // Botón flotante del cuaderno
                         const Positioned(

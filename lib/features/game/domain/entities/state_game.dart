@@ -1,6 +1,7 @@
 import 'character.dart';
 import 'card.dart';
-import 'board_map.dart'; // Asegúrate de importar tu clase BoardMap
+import 'board_map.dart';
+import 'position.dart'; 
 
 enum GamePhase { rolling, moving, suggesting, refuting, narrative, gameOver }
 
@@ -27,7 +28,9 @@ class ClueGameState {
   final int? refutingPlayerIndex;
   final List<ClueCard>? currentSuggestion;
   final BoardMap boardMap;
-  final RoomCard? currentRoomForNarrative; // Campo necesario para el renderizado
+  final RoomCard? currentRoomForNarrative; 
+  final Map<String, Position> weaponPositions; 
+  final List<ClueCardClass> clueDeck; 
 
   const ClueGameState({
     required this.players,
@@ -41,12 +44,16 @@ class ClueGameState {
     this.refutingPlayerIndex,
     this.currentSuggestion,
     this.currentRoomForNarrative,
+    required this.weaponPositions,
+    required this.clueDeck,
   });
 
   factory ClueGameState.initial({
     required List<ClueCard> totalDeck,
     required List<ClueCard> envelope,
     required BoardMap boardMap, // Añadido
+    required Map<String, Position> weaponPositions,
+    required List<ClueCardClass> clueDeck,
   }) {
     final character = envelope.firstWhere((c) => c.type == CardType.character) as CharacterCard;
     final weapon = envelope.firstWhere((c) => c.type == CardType.weapon) as WeaponCard;
@@ -58,7 +65,9 @@ class ClueGameState {
       solution: CaseSolution(character: character, weapon: weapon, room: room),
       phase: GamePhase.rolling,
       totalDeck: totalDeck,
-      boardMap: boardMap, // Asignado
+      boardMap: boardMap,
+      weaponPositions: weaponPositions,
+      clueDeck: clueDeck,
     );
   }
 
@@ -75,6 +84,8 @@ class ClueGameState {
     int? refutingPlayerIndex,
     List<ClueCard>? currentSuggestion,
     BoardMap? boardMap,
+    Map<String, Position>? weaponPositions,
+    List<ClueCardClass>? clueDeck,
   }) {
     return ClueGameState(
       players: players ?? this.players,
@@ -87,6 +98,8 @@ class ClueGameState {
       refutingPlayerIndex: refutingPlayerIndex ?? this.refutingPlayerIndex,
       currentSuggestion: currentSuggestion ?? this.currentSuggestion,
       boardMap: boardMap ?? this.boardMap,
+      weaponPositions: weaponPositions ?? this.weaponPositions,
+      clueDeck: clueDeck ?? this.clueDeck,
     );
   }
 }

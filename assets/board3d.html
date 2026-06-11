@@ -30,17 +30,17 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 0.8;
+renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
 // ── Escena ────────────────────────────────────────────────────────────────────
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0a0a0f);
-scene.fog = new THREE.Fog(0x0a0a0f, 40, 80);
+scene.fog = new THREE.Fog(0x0a0a0f, 50, 90);
 
 // ── Cámara ────────────────────────────────────────────────────────────────────
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
-const dist = 28, elev = 30 * Math.PI / 180, rot = 20 * Math.PI / 180;
+const dist = 30, elev = 30 * Math.PI / 180, rot = 20 * Math.PI / 180;
 camera.position.set(
   dist * Math.cos(elev) * Math.sin(rot),
   dist * Math.sin(elev),
@@ -51,303 +51,165 @@ camera.lookAt(0, 0, 0);
 // ── OrbitControls ─────────────────────────────────────────────────────────────
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enablePan = false;
-controls.minDistance = 8;
-controls.maxDistance = 55;
+controls.minDistance = 10;
+controls.maxDistance = 60;
 controls.maxPolarAngle = 1.35;
 controls.target.set(0, 0, 0);
 controls.update();
 
 // ── Luces ─────────────────────────────────────────────────────────────────────
-// Luz ambiental muy tenue — atmósfera oscura
-scene.add(new THREE.AmbientLight(0x1a1a2e, 1.2));
-
-// Luz principal cenital tenue
-const mainLight = new THREE.DirectionalLight(0xffeedd, 0.6);
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const mainLight = new THREE.DirectionalLight(0xffffff, 0.6);
 mainLight.position.set(5, 20, 8);
 mainLight.castShadow = true;
 mainLight.shadow.mapSize.width = 2048;
 mainLight.shadow.mapSize.height = 2048;
 mainLight.shadow.camera.near = 0.5;
 mainLight.shadow.camera.far = 60;
-mainLight.shadow.camera.left = -15;
-mainLight.shadow.camera.right = 15;
-mainLight.shadow.camera.top = 15;
-mainLight.shadow.camera.bottom = -15;
+mainLight.shadow.camera.left = -16;
+mainLight.shadow.camera.right = 16;
+mainLight.shadow.camera.top = 16;
+mainLight.shadow.camera.bottom = -16;
 scene.add(mainLight);
 
-// ── Definición de habitaciones ────────────────────────────────────────────────
+// ── Conversión de coordenadas ─────────────────────────────────────────────────
+// Grid Dart: x: 0..23 (24 cols), y: 0..24 (25 rows)
+// Centro del grid: (11.5, 12) → Three.js (0, 0)
+// threeX = tileX - 11.5
+// threeZ = tileY - 12
+function tileToThree(tileX, tileY) {
+  return { x: tileX - 11.5, z: tileY - 12 };
+}
+
+function roomCenter(x0, x1, y0, y1) {
+  return tileToThree((x0 + x1) / 2, (y0 + y1) / 2);
+}
+
+// ── Definición de habitaciones (solo para posicionar tokens y highlights) ─────
 const ROOMS = [
-  { id: 'study',         nameEs: 'Estudio',       x: -8, z:  8, color: 0x1a0a2e, accent: 0x6a0dad, icon: '🕯' },
-  { id: 'hall',          nameEs: 'Vestíbulo',      x:  0, z:  8, color: 0x0a1a0a, accent: 0x228b22, icon: '🚪' },
-  { id: 'lounge',        nameEs: 'Sala de Estar',  x:  8, z:  8, color: 0x1a0a0a, accent: 0x8b0000, icon: '🔥' },
-  { id: 'library',       nameEs: 'Biblioteca',     x: -8, z:  0, color: 0x0a0a1a, accent: 0x00008b, icon: '📚' },
-  { id: 'billiard_room', nameEs: 'Sala de Billar', x:  0, z:  0, color: 0x001a0a, accent: 0x006400, icon: '🎱' },
-  { id: 'conservatory',  nameEs: 'Invernadero',    x:  8, z:  0, color: 0x001a1a, accent: 0x008b8b, icon: '🌿' },
-  { id: 'kitchen',       nameEs: 'Cocina',         x: -8, z: -8, color: 0x1a0f00, accent: 0xb8860b, icon: '🔪' },
-  { id: 'ballroom',      nameEs: 'Sala de Baile',  x:  0, z: -8, color: 0x10001a, accent: 0x9400d3, icon: '🎭' },
-  { id: 'dining_room',   nameEs: 'Comedor',        x:  8, z: -8, color: 0x001020, accent: 0x00308f, icon: '🍷' },
+  { id: 'study',         x0: 1,  x1: 6,  y0: 1,  y1: 6  },
+  { id: 'hall',          x0: 9,  x1: 14, y0: 1,  y1: 6  },
+  { id: 'lounge',        x0: 17, x1: 22, y0: 1,  y1: 6  },
+  { id: 'library',       x0: 1,  x1: 6,  y0: 9,  y1: 14 },
+  { id: 'billiard_room', x0: 9,  x1: 14, y0: 9,  y1: 14 },
+  { id: 'dining_room',   x0: 17, x1: 22, y0: 9,  y1: 14 },
+  { id: 'conservatory',  x0: 1,  x1: 6,  y0: 17, y1: 22 },
+  { id: 'ballroom',      x0: 9,  x1: 14, y0: 17, y1: 22 },
+  { id: 'kitchen',       x0: 17, x1: 22, y0: 17, y1: 22 },
 ];
 
 const ROOM_POSITIONS = {};
-ROOMS.forEach(r => { ROOM_POSITIONS[r.id] = [r.x, r.z]; });
-
-// ── Helper: canvas texture con texto ─────────────────────────────────────────
-function makeRoomTexture(room) {
-  const size = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  // Fondo oscuro con color de habitación
-  const bg = `#${room.color.toString(16).padStart(6, '0')}`;
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, size, size);
-
-  // Viñeta (bordes más oscuros)
-  const vignette = ctx.createRadialGradient(size/2, size/2, size*0.2, size/2, size/2, size*0.75);
-  vignette.addColorStop(0, 'rgba(0,0,0,0)');
-  vignette.addColorStop(1, 'rgba(0,0,0,0.7)');
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, size, size);
-
-  // Patrón de suelo — líneas tenues
-  ctx.strokeStyle = `rgba(255,255,255,0.04)`;
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= size; i += size / 6) {
-    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke();
-  }
-
-  // Borde interior con color de acento
-  const ac = `#${room.accent.toString(16).padStart(6, '0')}`;
-  ctx.strokeStyle = ac;
-  ctx.lineWidth = 8;
-  ctx.strokeRect(16, 16, size - 32, size - 32);
-
-  // Brillo en esquinas
-  [
-    [16, 16], [size - 16, 16],
-    [16, size - 16], [size - 16, size - 16]
-  ].forEach(([cx, cy]) => {
-    const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 40);
-    grd.addColorStop(0, ac + 'aa');
-    grd.addColorStop(1, 'transparent');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, size, size);
-  });
-
-  // Nombre de la habitación
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-
-  // Sombra del texto
-  ctx.shadowColor = 'rgba(0,0,0,0.9)';
-  ctx.shadowBlur = 12;
-
-  // Texto principal
-  ctx.fillStyle = '#f0e6d3';
-  ctx.font = `bold ${size * 0.12}px serif`;
-  // Dividir nombre en dos líneas si es largo
-  const words = room.nameEs.split(' ');
-  if (words.length > 2) {
-    const mid = Math.ceil(words.length / 2);
-    const line1 = words.slice(0, mid).join(' ');
-    const line2 = words.slice(mid).join(' ');
-    ctx.fillText(line1, size / 2, size / 2 - size * 0.08);
-    ctx.fillText(line2, size / 2, size / 2 + size * 0.08);
-  } else if (words.length === 2) {
-    ctx.fillText(words[0], size / 2, size / 2 - size * 0.07);
-    ctx.fillText(words[1], size / 2, size / 2 + size * 0.07);
-  } else {
-    ctx.fillText(room.nameEs, size / 2, size / 2);
-  }
-
-  ctx.shadowBlur = 0;
-
-  // Línea decorativa bajo el nombre
-  ctx.strokeStyle = ac;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(size * 0.25, size * 0.62);
-  ctx.lineTo(size * 0.75, size * 0.62);
-  ctx.stroke();
-
-  return new THREE.CanvasTexture(canvas);
-}
-
-// ── Helper: canvas texture para paredes ──────────────────────────────────────
-function makeWallTexture(accent) {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#0d0d0d';
-  ctx.fillRect(0, 0, size, size);
-
-  // Patrón de ladrillo tenue
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
-  const bh = 32, bw = 64;
-  for (let row = 0; row * bh < size; row++) {
-    const offset = (row % 2) * (bw / 2);
-    for (let col = -1; col * bw < size + bw; col++) {
-      ctx.strokeRect(col * bw + offset, row * bh, bw, bh);
-    }
-  }
-
-  const ac = `#${accent.toString(16).padStart(6, '0')}`;
-  ctx.strokeStyle = ac + '44';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(4, 4, size - 8, size - 8);
-
-  return new THREE.CanvasTexture(canvas);
-}
+ROOMS.forEach(r => {
+  const c = roomCenter(r.x0, r.x1, r.y0, r.y1);
+  ROOM_POSITIONS[r.id] = [c.x, c.z];
+});
 
 // ── Construcción del tablero ──────────────────────────────────────────────────
 function buildBoard() {
-  // Suelo general (pasillos)
-  const floorGeo = new THREE.PlaneGeometry(26, 26);
-
-  const floorCanvas = document.createElement('canvas');
-  floorCanvas.width = 512; floorCanvas.height = 512;
-  const fctx = floorCanvas.getContext('2d');
-  fctx.fillStyle = '#080810';
-  fctx.fillRect(0, 0, 512, 512);
-  // Grid de pasillos
-  fctx.strokeStyle = 'rgba(255,255,200,0.06)';
-  fctx.lineWidth = 1;
-  for (let i = 0; i <= 512; i += 512/26) {
-    fctx.beginPath(); fctx.moveTo(i, 0); fctx.lineTo(i, 512); fctx.stroke();
-    fctx.beginPath(); fctx.moveTo(0, i); fctx.lineTo(i, 512); fctx.stroke();
-  }
-  const floorTex = new THREE.CanvasTexture(floorCanvas);
-  floorTex.wrapS = THREE.RepeatWrapping;
-  floorTex.wrapT = THREE.RepeatWrapping;
-
-  const floorMat = new THREE.MeshStandardMaterial({
-    map: floorTex,
-    roughness: 0.9,
-    metalness: 0.1,
-  });
-  const floor = new THREE.Mesh(floorGeo, floorMat);
+  // Suelo base oscuro
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(24, 25),
+    new THREE.MeshStandardMaterial({ color: 0x080810, roughness: 1.0 })
+  );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // Grid de movimiento - más visible para ayudar a visualizar casillas
-  const gridHelper = new THREE.GridHelper(24, 24, 0x00ffff, 0x00ffff);
-  gridHelper.position.y = 0.01; // Ligeramente encima del suelo para evitar z-fighting
-  gridHelper.material.opacity = 0.7;
-  gridHelper.material.transparent = true;
-  scene.add(gridHelper);
+  // Textura del tablero
+  const boardOverlayTex = new THREE.TextureLoader().load(
+    './board_texture.png',
+    (tex) => { tex.needsUpdate = true; },
+    undefined,
+    (err) => console.warn('board_texture.png no encontrado:', err)
+  );
+  const boardOverlay = new THREE.Mesh(
+    new THREE.PlaneGeometry(24, 25),
+    new THREE.MeshStandardMaterial({
+      map: boardOverlayTex,
+      transparent: false,
+      roughness: 0.9,
+      metalness: 0.0,
+    })
+  );
+  boardOverlay.rotation.x = -Math.PI / 2;
+  boardOverlay.position.y = 0.01;
+  boardOverlay.receiveShadow = true;
+  scene.add(boardOverlay);
 
   // Borde exterior del tablero
-  const borderGeo = new THREE.BoxGeometry(27, 0.15, 27);
-  const borderMat = new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.8 });
-  const border = new THREE.Mesh(borderGeo, borderMat);
+  const border = new THREE.Mesh(
+    new THREE.BoxGeometry(25, 0.15, 26),
+    new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.8 })
+  );
   border.position.y = -0.08;
   border.receiveShadow = true;
   scene.add(border);
+}
 
-  // Marco dorado exterior
-  const framePoints = [];
-  const hw = 13.5;
-  framePoints.push(
-    new THREE.Vector3(-hw, 0.1,  hw),
-    new THREE.Vector3( hw, 0.1,  hw),
-    new THREE.Vector3( hw, 0.1, -hw),
-    new THREE.Vector3(-hw, 0.1, -hw),
-    new THREE.Vector3(-hw, 0.1,  hw),
-  );
-  const frameLine = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(framePoints),
-    new THREE.LineBasicMaterial({ color: 0xb8960c, linewidth: 2 })
-  );
-  scene.add(frameLine);
+// ── Highlights de casillas válidas ────────────────────────────────────────────
+const highlightGroup = new THREE.Group();
+scene.add(highlightGroup);
 
-  // Habitaciones
-  ROOMS.forEach(room => {
-    const roomGroup = new THREE.Group();
+const MAT_WALKWAY = new THREE.MeshBasicMaterial({
+  color: 0x00e5ff,
+  transparent: true,
+  opacity: 0.35,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const MAT_DOOR = new THREE.MeshBasicMaterial({
+  color: 0xffd700,
+  transparent: true,
+  opacity: 0.55,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const MAT_ROOM = new THREE.MeshBasicMaterial({
+  color: 0x00ff88,
+  transparent: true,
+  opacity: 0.28,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
 
-    // Suelo de la habitación con textura
-    const roomFloorGeo = new THREE.BoxGeometry(7, 0.18, 7);
-    const roomTex = makeRoomTexture(room);
-    const roomFloorMat = new THREE.MeshStandardMaterial({
-      map: roomTex,
-      roughness: 0.85,
-      metalness: 0.05,
-    });
-    const roomFloor = new THREE.Mesh(roomFloorGeo, roomFloorMat);
-    roomFloor.receiveShadow = true;
-    roomGroup.add(roomFloor);
+const TILE_GEO = new THREE.PlaneGeometry(0.82, 0.82);
 
-    // Paredes bajas alrededor de la habitación
-    const wallTex = makeWallTexture(room.accent);
-    const wallMat = new THREE.MeshStandardMaterial({
-      map: wallTex,
-      roughness: 0.9,
-    });
-    const wallH = 0.5;
-    const wallThick = 0.15;
-    [
-      { w: 7, d: wallThick, x: 0,        z:  3.5 + wallThick / 2 },
-      { w: 7, d: wallThick, x: 0,        z: -3.5 - wallThick / 2 },
-      { w: 7, d: wallThick, x:  3.5 + wallThick / 2, z: 0 },
-      { w: 7, d: wallThick, x: -3.5 - wallThick / 2, z: 0 },
-    ].forEach(w => {
-      const wGeo = new THREE.BoxGeometry(w.w, wallH, w.d);
-      const wMesh = new THREE.Mesh(wGeo, wallMat);
-      wMesh.position.set(w.x, wallH / 2 + 0.09, w.z);
-      wMesh.castShadow = true;
-      wMesh.receiveShadow = true;
-      roomGroup.add(wMesh);
-    });
+function clearHighlights() {
+  while (highlightGroup.children.length > 0) {
+    highlightGroup.remove(highlightGroup.children[0]);
+  }
+}
 
-    // Luz de acento puntual dentro de la habitación
-    const pointLight = new THREE.PointLight(room.accent, 0.8, 6);
-    pointLight.position.set(0, 2, 0);
-    roomGroup.add(pointLight);
+// tiles: [{ x, y, type }]  type: 'walkway' | 'door'
+// validRoomIds: ['study', 'kitchen', ...]
+function showValidTiles(tiles, validRoomIds) {
+  clearHighlights();
 
-    // Líneas de borde brillantes en el suelo
-    const accentColor = new THREE.Color(room.accent);
-    const edgePoints = [
-      new THREE.Vector3(-3.5, 0.1,  3.5),
-      new THREE.Vector3( 3.5, 0.1,  3.5),
-      new THREE.Vector3( 3.5, 0.1, -3.5),
-      new THREE.Vector3(-3.5, 0.1, -3.5),
-      new THREE.Vector3(-3.5, 0.1,  3.5),
-    ];
-    const edgeLine = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(edgePoints),
-      new THREE.LineBasicMaterial({ color: accentColor })
-    );
-    roomGroup.add(edgeLine);
-
-    roomGroup.position.set(room.x, 0, room.z);
-    scene.add(roomGroup);
+  // Casillas individuales de pasillo y puertas
+  tiles.forEach(tile => {
+    const pos = tileToThree(tile.x, tile.y);
+    const mat = tile.type === 'door' ? MAT_DOOR : MAT_WALKWAY;
+    const mesh = new THREE.Mesh(TILE_GEO, mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(pos.x, 0.05, pos.z);
+    highlightGroup.add(mesh);
   });
 
-  // Separadores de pasillo (líneas entre habitaciones)
-  const corridorMat = new THREE.LineBasicMaterial({ color: 0x3a3020, opacity: 0.5, transparent: true });
-  [-4, 4].forEach(offset => {
-    const hLine = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-13, 0.05, offset),
-        new THREE.Vector3( 13, 0.05, offset),
-      ]), corridorMat
-    );
-    scene.add(hLine);
-    const vLine = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(offset, 0.05, -13),
-        new THREE.Vector3(offset, 0.05,  13),
-      ]), corridorMat
-    );
-    scene.add(vLine);
-  });
+  // Habitaciones completas alcanzables
+  if (validRoomIds && validRoomIds.length > 0) {
+    validRoomIds.forEach(roomId => {
+      const room = ROOMS.find(r => r.id === roomId);
+      if (!room) return;
+      const rw = room.x1 - room.x0 + 1;
+      const rh = room.y1 - room.y0 + 1;
+      const center = roomCenter(room.x0, room.x1, room.y0, room.y1);
+      const geo = new THREE.PlaneGeometry(rw - 0.1, rh - 0.1);
+      const mesh = new THREE.Mesh(geo, MAT_ROOM);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(center.x, 0.05, center.z);
+      highlightGroup.add(mesh);
+    });
+  }
 }
 
 // ── Tokens ────────────────────────────────────────────────────────────────────
@@ -356,52 +218,50 @@ const TOKEN_OFFSETS = [
   [0, -0.8], [-0.8, -0.8], [0.8, -0.8],
 ];
 
-const tokenMeshes = {}; // playerId -> mesh
-const tokenTargets = {}; // playerId -> target position for smooth movement
-const tokenAnimations = {}; // playerId -> animation state
+const tokenMeshes     = {};
+const tokenTargets    = {};
+const tokenAnimations = {};
 
 function buildToken(hexColor) {
-  const color = parseInt(hexColor.replace('#', 'FF'), 16) & 0xFFFFFF;
+  const colorInt = parseInt(hexColor.replace('#', ''), 16);
   const group = new THREE.Group();
 
-  const mat = new THREE.MeshStandardMaterial({
-    color: color,
-    metalness: 0.8,
-    roughness: 0.2,
-    emissive: color,
-    emissiveIntensity: 0.15,
-  });
-
-  // Base
-  const baseGeo = new THREE.CylinderGeometry(0.3, 0.35, 0.12, 20);
-  const base = new THREE.Mesh(baseGeo, mat);
-  base.castShadow = true;
-  group.add(base);
-
-  // Cuerpo
-  const bodyGeo = new THREE.CylinderGeometry(0.18, 0.28, 0.55, 20);
-  const body = new THREE.Mesh(bodyGeo, mat);
-  body.position.y = 0.33;
+  const body = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.22, 0.28, 0.55, 16),
+    new THREE.MeshStandardMaterial({
+      color: colorInt,
+      roughness: 0.4,
+      metalness: 0.3,
+      emissive: colorInt,
+      emissiveIntensity: 0.25,
+    })
+  );
   body.castShadow = true;
   group.add(body);
 
-  // Cabeza
-  const headGeo = new THREE.SphereGeometry(0.2, 20, 20);
-  const head = new THREE.Mesh(headGeo, mat);
-  head.position.y = 0.72;
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 12, 12),
+    new THREE.MeshStandardMaterial({
+      color: colorInt,
+      roughness: 0.3,
+      metalness: 0.4,
+      emissive: colorInt,
+      emissiveIntensity: 0.25,
+    })
+  );
+  head.position.y = 0.38;
   head.castShadow = true;
   group.add(head);
 
-  // Halo de luz
-  const halo = new THREE.PointLight(color, 0.6, 1.5);
-  halo.position.y = 0.5;
-  group.add(halo);
+  const tokenLight = new THREE.PointLight(colorInt, 0.5, 3.5);
+  tokenLight.position.y = 1.0;
+  group.add(tokenLight);
 
   return group;
 }
 
 function syncPlayers(players) {
-  players.forEach((player) => {
+  players.forEach((player, i) => {
     let mesh = tokenMeshes[player.id];
     if (!mesh) {
       mesh = buildToken(player.hexColor);
@@ -411,74 +271,58 @@ function syncPlayers(players) {
 
     mesh.visible = !player.isEliminated;
 
-    // Calculate target position
     let targetPosition;
     if (player.roomId && ROOM_POSITIONS[player.roomId]) {
       const [rx, rz] = ROOM_POSITIONS[player.roomId];
       const inRoom = players.filter(p => p.roomId === player.roomId);
-      const idx = inRoom.findIndex(p => p.id === player.id);
-      const off = TOKEN_OFFSETS[idx] || [0, 0];
+      const idx    = inRoom.findIndex(p => p.id === player.id);
+      const off    = TOKEN_OFFSETS[idx] || [0, 0];
       targetPosition = new THREE.Vector3(rx + off[0], 0.5, rz + off[1]);
     } else {
-      targetPosition = new THREE.Vector3(player.x - 12, 0.5, player.y - 12);
+      const pos = tileToThree(player.x, player.y);
+      targetPosition = new THREE.Vector3(pos.x, 0.5, pos.z);
     }
 
-    // Store target for smooth movement
     tokenTargets[player.id] = targetPosition;
-
-    // If we're not already animating this token, snap to position immediately
-    // (this handles initial placement and non-animated moves like secret passages)
-    if (!tokenAnimations[player.id]) {
+    if (!tokenAnimations[player.id] || !tokenAnimations[player.id].active) {
       mesh.position.copy(targetPosition);
     }
   });
 }
 
-// ── Click Handling ─────────────────────────────────────────────────────
-let raycaster = new THREE.Raycaster();
-let mouse = new THREE.Vector2();
+// ── Click / Tap handling ──────────────────────────────────────────────────────
+const raycaster = new THREE.Raycaster();
+const mouse     = new THREE.Vector2();
 
-function onMouseClick(event) {
-  // Calculate mouse position in normalized device coordinates
-  // (-1 to +1) for both components
+function onPointerUp(event) {
+  const clientX = event.changedTouches ? event.changedTouches[0].clientX : event.clientX;
+  const clientY = event.changedTouches ? event.changedTouches[0].clientY : event.clientY;
 
   const rect = renderer.domElement.getBoundingClientRect();
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  mouse.x = ((clientX - rect.left) / rect.width)  *  2 - 1;
+  mouse.y = ((clientY - rect.top)  / rect.height) * -2 + 1;
 
-  // Update the raycaster
   raycaster.setFromCamera(mouse, camera);
-
-  // Create a plane at y=0.5 (where tokens move)
-  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0.5);
-
-  // Calculate intersection point
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   const intersectPoint = new THREE.Vector3();
   raycaster.ray.intersectPlane(plane, intersectPoint);
 
   if (intersectPoint) {
-    // Convert Three.js coordinates to game grid coordinates
-    // Three.js: x: -12 to +11, z: -12 to +11 (after our coordinate transform)
-    // Game: x: 0 to 23, y: 0 to 24
+    const tileX = Math.round(intersectPoint.x + 11.5);
+    const tileY = Math.round(intersectPoint.z + 12);
 
-    const gameX = Math.round(intersectPoint.x + 12);
-    const gameY = Math.round(-intersectPoint.z + 12); // Note: z is negated
-
-    // Send click to Flutter
-    if (window.FlutterChannel) {
-      window.FlutterChannel.postMessage(JSON.stringify({
-        type: 'gridClick',
-        x: gameX,
-        y: gameY
-      }));
+    if (tileX >= 0 && tileX < 24 && tileY >= 0 && tileY < 25) {
+      if (window.FlutterChannel) {
+        window.FlutterChannel.postMessage(JSON.stringify({
+          type: 'gridClick', x: tileX, y: tileY,
+        }));
+      }
     }
   }
 }
+renderer.domElement.addEventListener('pointerup', onPointerUp, false);
 
-// Add event listener
-renderer.domElement.addEventListener('click', onMouseClick, false);
-
-// ── Handle messages from Flutter ─────────────────────────────────────────────
+// ── Mensajes desde Flutter ────────────────────────────────────────────────────
 window.handleFlutterMessage = function(message) {
   try {
     const msg = JSON.parse(message);
@@ -491,93 +335,56 @@ window.handleFlutterMessage = function(message) {
 };
 
 function _startTokenAnimation(playerId, path, durationMs) {
-  // Cancel any existing animation for this token
-  if (tokenAnimations[playerId]) {
-    cancelAnimationFrame(tokenAnimations[playerId].animationFrame);
+  if (tokenAnimations[playerId] && tokenAnimations[playerId].active) {
+    tokenAnimations[playerId].active = false;
   }
 
-  // Convert path from game coordinates to Three.js coordinates
   const threePath = path.map(point => {
-    // Game coordinates: x: 0-23, y: 0-24
-    // Three.js coordinates: x: -12 to +11, y: 0.5 (fixed height), z: -12 to +11
-    return new THREE.Vector3(
-      point[0] - 12,  // x
-      0.5,            // y (fixed height)
-      -(point[1] - 12) // z (note: flipped y to z and negated for correct orientation)
-    );
+    const pos = tileToThree(point[0], point[1]);
+    return new THREE.Vector3(pos.x, 0.5, pos.z);
   });
 
-  // Store animation state
   tokenAnimations[playerId] = {
     startTime: performance.now(),
-    duration: durationMs,
-    path: threePath,
-    currentSegment: 0,
-    segmentStartTime: performance.now(),
-    mesh: tokenMeshes[playerId] || null,
-    active: true
+    duration:  durationMs,
+    path:      threePath,
+    mesh:      tokenMeshes[playerId] || null,
+    active:    true,
   };
-
-  // If we don't have the mesh yet, we'll wait for syncPlayers to create it
-  if (!tokenMeshes[playerId]) {
-    // Animation will start when the mesh is created in syncPlayers
-    return;
-  }
 }
 
-// Animation loop extension
-const originalAnimate = window.animate || (() => {});
-window.animate = function() {
-  requestAnimationFrame(window.animate);
+// ── Loop de animación ─────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
 
-  // Update token animations
   const now = performance.now();
+
   for (const playerId in tokenAnimations) {
     const anim = tokenAnimations[playerId];
     if (!anim.active || !anim.mesh) continue;
 
-    // Calculate progress through entire animation
     const elapsed = now - anim.startTime;
     if (elapsed >= anim.duration) {
-      // Animation complete
       anim.active = false;
-      // Snap to final position
-      if (anim.path.length > 0) {
-        anim.mesh.position.copy(anim.path[anim.path.length - 1]);
-      }
+      if (anim.path.length > 0) anim.mesh.position.copy(anim.path[anim.path.length - 1]);
       continue;
     }
 
-    // Calculate which segment we're in
-    const segmentDuration = anim.duration / (anim.path.length - 1);
-    const segmentIndex = Math.floor(elapsed / segmentDuration);
-    const segmentProgress = (elapsed % segmentDuration) / segmentDuration;
-
-    // Constrain to valid range
-    const clampedSegmentIndex = Math.min(segmentIndex, anim.path.length - 2);
-    const clampedProgress = Math.min(segmentProgress, 1.0);
-
-    // Get start and end points for current segment
-    const startPoint = anim.path[clampedSegmentIndex];
-    const endPoint = anim.path[clampedSegmentIndex + 1];
-
-    // Linear interpolation
-    const currentPos = startPoint.clone().lerp(endPoint, clampedProgress);
-    anim.mesh.position.copy(currentPos);
+    const segDur = anim.duration / (anim.path.length - 1);
+    const si     = Math.min(Math.floor(elapsed / segDur), anim.path.length - 2);
+    const sp     = Math.min((elapsed % segDur) / segDur, 1.0);
+    anim.mesh.position.copy(anim.path[si].clone().lerp(anim.path[si + 1], sp));
   }
 
-  // Update token halos (pulsing effect)
+  // Pulso suave en la luz de cada token
   Object.values(tokenMeshes).forEach((mesh, i) => {
-    const halo = mesh.children.find(c => c.isLight);
-    if (halo) halo.intensity = 0.4 + 0.2 * Math.sin(now * 0.002 + i);
+    const light = mesh.children.find(c => c.isLight);
+    if (light) light.intensity = 0.35 + 0.2 * Math.sin(now * 0.002 + i);
   });
 
   controls.update();
   renderer.render(scene, camera);
-};
-
-// Start the animation loop
-window.animate();
+}
 
 // ── Comunicación Flutter ↔ JS ─────────────────────────────────────────────────
 function notifyReady() {
@@ -590,6 +397,13 @@ window.updateGameState = function(jsonStr) {
   try {
     const state = JSON.parse(jsonStr);
     if (state.players) syncPlayers(state.players);
+
+    // Highlights: si vienen tiles válidas mostrarlas, si no limpiar
+    if (state.validTiles || state.validRoomIds) {
+      showValidTiles(state.validTiles || [], state.validRoomIds || []);
+    } else {
+      clearHighlights();
+    }
   } catch(e) {
     console.error('updateGameState error:', e);
   }
@@ -597,6 +411,7 @@ window.updateGameState = function(jsonStr) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 buildBoard();
+animate();
 notifyReady();
 
 // ── Resize ────────────────────────────────────────────────────────────────────

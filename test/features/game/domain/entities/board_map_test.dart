@@ -1,5 +1,4 @@
 import 'package:cluedo_mobil/features/game/domain/entities/board_map.dart';
-import 'package:cluedo_mobil/features/game/domain/entities/position.dart';
 import 'package:cluedo_mobil/features/game/domain/entities/tile_type.dart';
 import 'package:flutter_test/flutter_test.dart';
 

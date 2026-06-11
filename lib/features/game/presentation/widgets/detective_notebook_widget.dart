@@ -20,7 +20,7 @@ class _DetectiveNotebookWidgetState extends State<DetectiveNotebookWidget> {
 
   @override
   Widget build(BuildContext context) {
-    // Clasificamos las cartas del mazo del CMS por categorías para las pestañas
+    // Clasificamos las cartas del mazo por categorías para las pestañas
     final characters = widget.totalDeck.where((c) => c.type == CardType.character).toList();
     final weapons = widget.totalDeck.where((c) => c.type == CardType.weapon).toList();
     final rooms = widget.totalDeck.where((c) => c.type == CardType.room).toList();
@@ -92,7 +92,7 @@ class _DetectiveNotebookWidgetState extends State<DetectiveNotebookWidget> {
   Widget _buildCategoryList(List<ClueCard> cards) {
     if (cards.isEmpty) {
       return const Center(
-        child: Text('No hay registros disponibles en el CMS.'),
+        child: Text('No hay registros disponibles.'),
       );
     }
 

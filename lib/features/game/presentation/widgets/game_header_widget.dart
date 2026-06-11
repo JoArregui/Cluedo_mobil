@@ -13,8 +13,7 @@ class GameHeaderWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Asumimos que gameState tiene una propiedad 'currentTurnIndex' o similar
-    // para verificar si es el turno del jugador actual.
+    // Verificar si es el turno del jugador actual.
     final bool esMiTurno = gameState.currentTurnIndex == 0; 
 
     return Container(

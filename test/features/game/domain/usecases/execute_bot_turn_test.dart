@@ -1,7 +1,6 @@
 import 'package:cluedo_mobil/features/game/domain/entities/board_map.dart';
 import 'package:cluedo_mobil/features/game/domain/entities/bot_memory.dart';
 import 'package:cluedo_mobil/features/game/domain/entities/card.dart';
-import 'package:cluedo_mobil/features/game/domain/entities/clue_deck.dart';
 import 'package:cluedo_mobil/features/game/domain/entities/character.dart';
 import 'package:cluedo_mobil/features/game/domain/entities/position.dart';
 import 'package:cluedo_mobil/features/game/domain/entities/state_game.dart';
@@ -64,6 +63,8 @@ void main() {
     required List<int> lastDiceRoll,
     GamePhase phase = GamePhase.moving,
     BoardMap? boardMap,
+    Map<String, Position> weaponPositions = const {},
+    List<ClueCardClass> clueDeck = const [],
   }) {
     return ClueGameState(
       players: players,
@@ -74,6 +75,8 @@ void main() {
       lastDiceRoll: lastDiceRoll,
       totalDeck: const [],
       boardMap: boardMap ?? const BoardMap(),
+      weaponPositions: weaponPositions,
+      clueDeck: clueDeck,
     );
   }
 

@@ -40,7 +40,7 @@ class ClueBananaAssets {
   }
 
   /// Pinta el arte representativo del sospechoso mediante siluetas vectoriales de alta fidelidad.
-  /// Evita el uso de imágenes externas mapeando el color exacto desde el CMS.
+  /// Evita el uso de imágenes externas mapeando el color exacto.
   static Widget renderCharacterArt({required CharacterCard character, double size = 80}) {
     final Color characterColor = _parseHexColor(character.hexColor);
 
@@ -93,7 +93,7 @@ class ClueBananaAssets {
   static Widget renderWeaponArt({required WeaponCard weapon, double size = 80}) {
     IconData weaponIcon;
     
-    // Mapeo lógico de iconos según el ID del CMS libre de caracteres extraños
+    // Mapeo lógico de iconos según el ID
     switch (weapon.id) {
       case 'knife':
         weaponIcon = Icons.colorize_rounded; // Símbolo aguzado estilizado

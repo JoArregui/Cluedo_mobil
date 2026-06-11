@@ -39,12 +39,14 @@ void main() {
     );
   }
 
-  /// Helper corregido pasando el parámetro obligatorio 'totalDeck'
+  /// Helper corregido pasando los parámetros obligatorios 'totalDeck', 'weaponPositions' y 'clueDeck'
   ClueGameState createMockGameState({
     required List<PlayerCharacter> players,
     required int? currentDiceResult,
     required List<int> lastDiceRoll,
     BoardMap? boardMap,
+    Map<String, Position> weaponPositions = const {},
+    List<ClueCardClass> clueDeck = const [],
   }) {
     return ClueGameState(
       players: players,
@@ -55,6 +57,8 @@ void main() {
       lastDiceRoll: lastDiceRoll,
       totalDeck: const [],
       boardMap: boardMap ?? const BoardMap(), // Corregido: Se añade el mapa requerido por el dominio
+      weaponPositions: weaponPositions,
+      clueDeck: clueDeck,
     );
   }
 

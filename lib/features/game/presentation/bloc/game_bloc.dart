@@ -8,6 +8,11 @@ import '../../domain/repositories/game_repository.dart';
 import '../../domain/entities/state_game.dart';
 import '../../domain/entities/character.dart';
 import '../../domain/entities/card.dart';
+import '../../domain/entities/bot_memory.dart';
+import '../../domain/entities/board_map.dart';
+import '../../domain/usecases/execute_bot_turn.dart';
+import '../../domain/usecases/validate_movement.dart';
+import 'dart:async';
 
 part 'game_state.dart';
 part 'game_event.dart';
@@ -15,8 +20,17 @@ part 'game_event.dart';
 class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
   final GameRepository gameRepository;
   final Random _random = Random();
+  final ExecuteBotTurn _executeBotTurn;
+  final Map<String, BotMemory> _botMemories = {};
+  Map<String, dynamic>? _pendingBotSuggestion;
+  bool _isBotTurnInProgress = false;
 
-  GameBloc({required this.gameRepository}) : super(GameInitial()) {
+  GameBloc({required this.gameRepository})
+      : _executeBotTurn = ExecuteBotTurn(
+          validateMovement: ValidateMovement(),
+          boardMap: const BoardMap(),
+        ),
+        super(GameInitial()) {
     on<StartNewGameEvent>(_onStartNewGame);
     on<RollDiceEvent>(_onRollDice);
     on<MoveCharacterEvent>(_onMoveCharacter);
@@ -27,6 +41,79 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     on<PassTurnEvent>(_onPassTurn);
   }
 
+  @override
+  void onChange(Change<GameBlocState> change) {
+    super.onChange(change);
+    if (_isBotTurnInProgress) return;
+    if (change.nextState is GamePlayReady) {
+      final state = (change.nextState as GamePlayReady).gameState;
+      // Bot's turn when not human (index 0) and phase is rolling -> roll dice
+      if (state.currentTurnIndex != 0 && state.phase == GamePhase.rolling) {
+        _isBotTurnInProgress = true;
+        Future.delayed(const Duration(milliseconds: 500), () {
+          add(RollDiceEvent());
+          _isBotTurnInProgress = false;
+        });
+      }
+      // Bot's turn after dice rolled (phase moving) -> decide move and suggestion
+      if (state.currentTurnIndex != 0 && state.phase == GamePhase.moving) {
+        final botMem = _botMemories[state.currentCharacter.card.id];
+        if (botMem != null) {
+          final result = _executeBotTurn.call(
+            gameState: state,
+            botMemory: botMem,
+          );
+          final newPos = result['newPosition'] as Position;
+          final suggestion = result['suggestion'] as Map<String, dynamic>?;
+          if (newPos != state.currentCharacter.position) {
+            add(MoveCharacterEvent(
+              x: newPos.x,
+              y: newPos.y,
+              roomId: newPos.roomId,
+            ));
+          }
+          if (suggestion != null && newPos.roomId != null) {
+            _pendingBotSuggestion = {
+              'suspect': suggestion['suspect'] as CharacterCard,
+              'weapon': suggestion['weapon'] as WeaponCard,
+              'room': suggestion['room'] as RoomCard,
+            };
+          } else {
+            _pendingBotSuggestion = null;
+          }
+        }
+      }
+      // If we have a pending bot suggestion and now we are in suggesting phase, execute it
+      if (_pendingBotSuggestion != null && state.phase == GamePhase.suggesting) {
+        final sug = _pendingBotSuggestion!;
+        add(MakeSuggestionEvent(
+          suspect: sug['suspect'] as CharacterCard,
+          weapon: sug['weapon'] as WeaponCard,
+        ));
+        _pendingBotSuggestion = null;
+      }
+    }
+  }
+
+  void _updateBotMemories(List<PlayerCharacter> players) {
+    for (final player in players) {
+      if (player.isBot) {
+        final mem = BotMemory(botPlayerId: player.card.id);
+        mem.initializeWithHand(player.hand);
+        _botMemories[player.card.id] = mem;
+      } else {
+        // Human player: we can keep an empty memory or not store
+        _botMemories[player.card.id] = BotMemory(botPlayerId: player.card.id);
+      }
+    }
+  }
+
+  void _learnCardShown(ClueCard card) {
+    for (final mem in _botMemories.values) {
+      mem.markAsChecked(card.id);
+    }
+  }
+
   Future<void> _onStartNewGame(
     StartNewGameEvent event,
     Emitter<GameBlocState> emit,
@@ -34,66 +121,102 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     emit(GameLoading());
     await Future.delayed(Duration.zero);
     try {
-      final initialGameState = await gameRepository.initializeCmsGame(
+      // Obtener estado inicial del repositorio (incluye posiciones de armas, mazo de pistas, etc.)
+      final ClueGameState initialState = await gameRepository.initializeLocalGame(
         numberOfPlayers: event.numberOfPlayers,
+        selectedCharacterId: event.selectedCharacterId,
       );
 
-      final List<Position> spawnPoints = [
-        const Position(x: 7, y: 23, roomId: null),
-        const Position(x: 0, y: 17, roomId: null),
-        const Position(x: 14, y: 0, roomId: null),
-        const Position(x: 23, y: 7, roomId: null),
-      ];
-      spawnPoints.shuffle(_random);
+      // El personaje secreto ya está eliminado de la lista de caracteres en el repositorio
+      final List<CharacterCard> remainingCharacters = initialState.totalDeck
+          .where((c) => c.type == CardType.character && c.id != initialState.solution.character.id)
+          .cast<CharacterCard>()
+          .toList();
 
-      final List<PlayerCharacter> allCharacters = [
+      // Aseguramos de tener exactamente cinco personajes restantes (seis total menos el secreto)
+      assert(remainingCharacters.length == 5, 'Se esperaban 5 personajes restantes');
+
+      // Crear posiciones iniciales para las seis fichas (espacios nombrados alrededor del tablero)
+      final List<Position> startPositions = [
+        const Position(x: 1, y: 1),   // cerca de esquina superior izquierda
+        const Position(x: 1, y: 22),  // cerca de esquina inferior izquierda
+        const Position(x: 22, y: 1),  // cerca de esquina superior derecha
+        const Position(x: 22, y: 22), // cerca de esquina inferior derecha
+        const Position(x: 11, y: 0),  // medio superior
+        const Position(x: 11, y: 24), // medio inferior
+      ];
+      startPositions.shuffle(_random);
+
+      // Crear jugadores basado en numberOfPlayers (1 humano + (numberOfPlayers-1) bots)
+      final List<PlayerCharacter> players = <PlayerCharacter>[];
+      // Encontrar el índice del personaje seleccionado en la lista restante
+      final int selectedIndex = remainingCharacters.indexWhere((c) => c.id == event.selectedCharacterId);
+      if (selectedIndex == -1) {
+        // Si por alguna razón el personaje seleccionado no está en la lista restante (debería estar)
+        // lanzamos un error o asumimos el primero
+        throw Exception('Personaje seleccionado no disponible');
+      }
+      // Extraer el personaje seleccionado
+      final CharacterCard selectedCharacter = remainingCharacters.removeAt(selectedIndex);
+      // Ahora remainingCharacters tiene los personajes restantes para bots
+
+      // Asignar posición al jugador humano (índice 0)
+      players.add(
         PlayerCharacter(
-          card: const CharacterCard(id: 'scarlett', nameEs: 'Amapola', nameEn: 'Miss Scarlett', hexColor: '#E63946'),
-          position: spawnPoints[0],
+          card: selectedCharacter,
+          position: startPositions[0],
+          hand: [], // Se llenará después
           isBot: false,
-          hand: [],
         ),
-        PlayerCharacter(
-          card: const CharacterCard(id: 'mustard', nameEs: 'Pradillo', nameEn: 'Colonel Mustard', hexColor: '#FFB703'),
-          position: spawnPoints[1],
-          isBot: true,
-          hand: [],
-        ),
-        PlayerCharacter(
-          card: const CharacterCard(id: 'green', nameEs: 'Verdi', nameEn: 'Reverend Green', hexColor: '#2A9D8F'),
-          position: spawnPoints[2],
-          isBot: true,
-          hand: [],
-        ),
+      );
+
+      // Asignar posiciones y personajes a los bots (numberOfPlayers - 1)
+      for (int i = 0; i < (event.numberOfPlayers - 1); i++) {
+        final CharacterCard botChar = remainingCharacters[i];
+        players.add(
+          PlayerCharacter(
+            card: botChar,
+            position: startPositions[i + 1],
+            hand: [], // Se llenará después
+            isBot: true,
+          ),
+        );
+      }
+
+      // Barajar las cartas restantes de personajes, armas y habitaciones para repartir
+      final List<ClueCard> remainingCards = [
+        ...initialState.totalDeck
+            .where((c) => c.type == CardType.character && c.id != initialState.solution.character.id && c.id != selectedCharacter.id),
+        ...initialState.totalDeck
+            .where((c) => c.type == CardType.weapon && c.id != initialState.solution.weapon.id),
+        ...initialState.totalDeck
+            .where((c) => c.type == CardType.room && c.id != initialState.solution.room.id),
       ];
-
-      final mainPlayer = allCharacters.firstWhere((p) => p.card.id == event.selectedCharacterId);
-      final bots = allCharacters.where((p) => p.card.id != event.selectedCharacterId).toList();
-      final List<PlayerCharacter> gamePlayers = [mainPlayer, ...bots];
-
-      final remainingCards = initialGameState.totalDeck.where((card) {
-        return card.id != initialGameState.solution.character.id &&
-            card.id != initialGameState.solution.weapon.id &&
-            card.id != initialGameState.solution.room.id;
-      }).toList();
       remainingCards.shuffle(_random);
 
+      // Repartir las cartas restantes entre los seis jugadores
       int playerIndex = 0;
-      while (remainingCards.isNotEmpty) {
-        final card = remainingCards.removeLast();
-        gamePlayers[playerIndex] = gamePlayers[playerIndex].copyWith(
-          hand: [...gamePlayers[playerIndex].hand, card],
-        );
-        playerIndex = (playerIndex + 1) % gamePlayers.length;
+      for (final card in remainingCards) {
+        final player = players[playerIndex % players.length];
+        player.hand.add(card);
+        playerIndex++;
       }
+
+      // Update bot memories with their initial hands
+      _updateBotMemories(players);
+
+      // El estado inicial del repositorio ya tiene weaponPositions y clueDeck (posiblemente con placeholders)
+      // Nous allons utiliser l'état du dépôt tel quel, mais nous devons nous assurer que le currentTurnIndex soit 0
+      // et que la phase soit rolling.
+      final ClueGameState gameState = initialState.copyWith(
+        players: players,
+        currentTurnIndex: 0,
+        phase: GamePhase.rolling,
+      );
 
       emit(
         GamePlayReady(
-          gameState: initialGameState.copyWith(
-            players: gamePlayers,
-            currentTurnIndex: 0,
-            phase: GamePhase.rolling,
-          ),
+          gameState: gameState,
           notificationMessage: "¡La mansión Tudor ha sido cerrada! Investiga las habitaciones.",
         ),
       );
@@ -107,37 +230,60 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.rolling) return;
 
-      final dice1 = _random.nextInt(6) + 1;
-      final dice2 = _random.nextInt(6) + 1;
-      final total = dice1 + dice2;
+      final random = Random();
+      final dice1 = random.nextInt(6) + 1;
+      final dice2 = random.nextInt(6) + 1;
+
+      // El icono de lupa cuenta como 1 para movimiento y permite robar una carta de pista
+      final int move1 = dice1 == 1 ? 1 : dice1;
+      final int move2 = dice2 == 1 ? 1 : dice2;
+      final int movementTotal = move1 + move2;
+
+      final List<ClueCardClass> drawnClues = <ClueCardClass>[];
+      final List<ClueCardClass> updatedClueDeck = List.from(currentState.clueDeck);
+
+      // Robar cartas de pista por cada lupa
+      if (dice1 == 1 && updatedClueDeck.isNotEmpty) {
+        final ClueCardClass clue = updatedClueDeck.removeAt(0);
+        drawnClues.add(clue);
+        // Poner la carta usada al final del mazo
+        updatedClueDeck.add(clue);
+      }
+      if (dice2 == 1 && updatedClueDeck.isNotEmpty) {
+        final ClueCardClass clue = updatedClueDeck.removeAt(0);
+        drawnClues.add(clue);
+        updatedClueDeck.add(clue);
+      }
+
+      String clueMessage = '';
+      if (drawnClues.isNotEmpty) {
+        clueMessage = ' Has robado ${drawnClues.length} carta(s) de pista.';
+      }
 
       emit(
         GamePlayReady(
           gameState: currentState.copyWith(
             lastDiceRoll: [dice1, dice2],
-            currentDiceResult: total,
+            currentDiceResult: movementTotal,
+            clueDeck: updatedClueDeck,
             phase: GamePhase.moving,
           ),
-          notificationMessage: "Has obtenido un $total en los dados. Elige tu destino.",
+          notificationMessage: "Has obtenido un $movementTotal en los dados. Elige tu destino.$clueMessage",
         ),
       );
     }
   }
 
   List<Position> _calculateMovementPath(Position start, Position end, ClueGameState gameState) {
-    // If moving to a room, we need to handle door entry
     if (end.roomId != null) {
-      // For room entry, path goes to the door then into the room
-      // Simplified: just return start and end for now
       return [start, end];
     } else {
-      // Hallway movement - use BFS to find shortest path
       return _findHallwayPath(start, end, gameState);
     }
   }
 
   List<Position> _findHallwayPath(Position start, Position end, ClueGameState gameState) {
-    // BFS to find shortest path in hallways
+  
     final queue = <List<Position>>[];
     final visited = <String>{};
 
@@ -152,7 +298,6 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
         return path;
       }
 
-      // Explore neighbors (up, down, left, right)
       final neighbors = [
         Position(x: current.x, y: current.y + 1),
         Position(x: current.x, y: current.y - 1),
@@ -161,19 +306,19 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       ];
 
       for (final neighbor in neighbors) {
-        // Check bounds
+     
         if (neighbor.x < 0 || neighbor.x >= 24 || neighbor.y < 0 || neighbor.y >= 25) {
           continue;
         }
 
-        // Check if not a wall
+      
         final boardMap = gameState.boardMap;
         final tileType = boardMap.getTileType(neighbor.x, neighbor.y);
         if (tileType == TileType.wall) {
           continue;
         }
 
-        // Check if not occupied by another player (in hallway)
+        // Checar si la casilla está ocupada por otro jugador (solo en pasillos, no en habitaciones)
         final isOccupied = gameState.players.any((p) =>
           !p.isEliminated &&
           p.position.roomId == null &&
@@ -192,7 +337,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       }
     }
 
-    // If no path found (shouldn't happen in valid game), return direct path
+
     return [start, end];
   }
 
@@ -204,18 +349,17 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final updatedPlayers = List<PlayerCharacter>.from(currentState.players);
       final int index = currentState.currentTurnIndex;
 
-      // Get the player who is moving
+
       final movingPlayer = updatedPlayers[index];
       final startPosition = movingPlayer.position;
       final endPosition = Position(x: event.x, y: event.y, roomId: event.roomId);
 
-      // Calculate the path for animation
+
       final movementPath = _calculateMovementPath(startPosition, endPosition, currentState);
 
-      // Convert path to JSON-serializable format
       final pathJson = movementPath.map((pos) => [pos.x.toDouble(), pos.y.toDouble()]).toList();
 
-      // Update the player's position
+      // Actualizar la posición del jugador
       updatedPlayers[index] = updatedPlayers[index].copyWith(
         position: endPosition,
       );
@@ -228,7 +372,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
         siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, updatedPlayers);
       }
 
-      // Emit the state change with path data for animation
+
       emit(
         GamePlayReady(
           gameState: currentState.copyWith(
@@ -243,7 +387,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
           animationPath: {
             'playerId': movingPlayer.card.id,
             'path': pathJson,
-            'duration': 1000, // 1 second animation duration
+            'duration': 2000, 
           },
         ),
       );
@@ -306,9 +450,42 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final List<ClueCard> sugerencia = [event.suspect, event.weapon, roomCard];
       final primerRefutador = (currentState.currentTurnIndex + 1) % currentState.players.length;
 
+      // Mover la ficha del personaje sospechado a la habitación actual
+      final List<PlayerCharacter> updatedPlayers = List<PlayerCharacter>.from(currentState.players);
+      final int suspectIndex = updatedPlayers.indexWhere((p) => p.card.id == event.suspect.id);
+      if (suspectIndex != -1) {
+        // Actualizamos la posición del sospechoso para que esté en la habitación
+        // Mantener las coordenadas x,y pero establecer el roomId
+        final Position oldPos = updatedPlayers[suspectIndex].position;
+        updatedPlayers[suspectIndex] = updatedPlayers[suspectIndex].copyWith(
+          position: Position(
+            x: oldPos.x,
+            y: oldPos.y,
+            roomId: currentRoomId,
+          ),
+        );
+      }
+
+      // Mover la ficha del arma a la habitación actual
+      final Map<String, Position> updatedWeaponPositions = Map<String, Position>.from(currentState.weaponPositions);
+      if (updatedWeaponPositions.containsKey(event.weapon.id)) {
+        // Colocar el arma en una posición dentro de la habitación (usamos coordenadas arbitrarias)
+        final Position oldPos = updatedWeaponPositions[event.weapon.id]!;
+        updatedWeaponPositions[event.weapon.id] = Position(
+          x: oldPos.x,
+          y: oldPos.y,
+          roomId: currentRoomId,
+        );
+      } else {
+        // Si no encontramos el arma, la colocamos en la habitación con posición predeterminada
+        updatedWeaponPositions[event.weapon.id] = const Position(x: 0, y: 0, roomId: null);
+      }
+
       emit(
         GamePlayReady(
           gameState: currentState.copyWith(
+            players: updatedPlayers,
+            weaponPositions: updatedWeaponPositions,
             phase: GamePhase.refuting,
             currentSuggestion: sugerencia,
             refutingPlayerIndex: primerRefutador,
@@ -340,6 +517,7 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             notificationMessage: "${currentState.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
           ),
         );
+        _learnCardShown(event.matchingCard!);
         return;
       }
 
@@ -457,7 +635,6 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
           ),
         );
       }
-      // If not in suggesting phase, ignore the pass (or could handle other cases)
     }
   }
 }

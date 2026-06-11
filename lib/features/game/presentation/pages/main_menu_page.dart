@@ -5,9 +5,12 @@ class MainMenuPage extends StatelessWidget {
   const MainMenuPage({super.key});
 
   final List<Map<String, String>> characters = const [
-    {'id': 'scarlett', 'name': 'Amapola'},
-    {'id': 'mustard', 'name': 'Pradillo'},
-    {'id': 'green', 'name': 'Verdi'},
+    {'id': 'scarlett', 'name': 'Scarlett'},
+    {'id': 'mustard', 'name': 'Mustard'},
+    {'id': 'green', 'name': 'Green'},
+    {'id': 'plum', 'name': 'Plum'},
+    {'id': 'orchid', 'name': 'Orchid'},
+    {'id': 'peacock', 'name': 'Peacock'},
   ];
 
   @override

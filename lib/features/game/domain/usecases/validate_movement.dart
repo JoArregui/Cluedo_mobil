@@ -33,7 +33,7 @@ class ValidateMovement {
       return _canEnterRoom(start, target, maxSteps, gameState);
     }
 
-    // 4. Lógica para movimiento por pasillos (Shortest Path via BFS)
+    // 4. Lógica para movimiento por pasillos 
     return _calculateShortestPath(start, target, maxSteps, gameState);
   }
 

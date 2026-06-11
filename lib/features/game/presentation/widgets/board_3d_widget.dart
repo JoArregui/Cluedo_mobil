@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import '../../domain/entities/board_map.dart';
 import '../../domain/entities/position.dart';
 import '../../domain/entities/state_game.dart';
+import '../../domain/entities/tile_type.dart';
 import '../../domain/usecases/validate_movement.dart';
 import '../bloc/game_bloc.dart';
 
@@ -36,7 +38,6 @@ class _Board3DWidgetState extends State<Board3DWidget> {
         if (state is GamePlayReady) {
           if (_webReady && _webController != null) {
             _syncState(state);
-            // Handle animation path if present
             if (state.animationPath != null) {
               _handleAnimationPath(state.animationPath!);
             }
@@ -104,7 +105,6 @@ class _Board3DWidgetState extends State<Board3DWidget> {
           }
         },
         onConsoleMessage: (controller, message) {
-          // ignore console messages for cleaner output
         },
       ),
     );
@@ -113,8 +113,9 @@ class _Board3DWidgetState extends State<Board3DWidget> {
   void _syncState(GamePlayReady state) {
     if (_webController == null) return;
 
-    // FIX: removed spurious 'return' inside map literal
-    final players = state.gameState.players
+    final gameState = state.gameState;
+
+    final players = gameState.players
         .map(
           (p) => {
             'id': p.card.id,
@@ -127,10 +128,83 @@ class _Board3DWidgetState extends State<Board3DWidget> {
         )
         .toList();
 
-    final json = jsonEncode({'players': players});
+    // Calcular casillas válidas solo cuando es el turno humano en fase moving
+    List<Map<String, dynamic>> validTiles = [];
+    List<String> validRoomIds = [];
+
+    if (gameState.phase == GamePhase.moving &&
+        gameState.currentTurnIndex == 0 &&
+        gameState.currentDiceResult != null) {
+      final result = _calculateValidTiles(gameState);
+      validTiles = result['tiles'] as List<Map<String, dynamic>>;
+      validRoomIds = result['roomIds'] as List<String>;
+    }
+
+    // Construir payload: incluir validTiles y validRoomIds solo en fase moving del humano
+    final Map<String, dynamic> payload = {
+      'players': players,
+    };
+    if (gameState.phase == GamePhase.moving &&
+        gameState.currentTurnIndex == 0) {
+      payload['validTiles'] = validTiles;
+      payload['validRoomIds'] = validRoomIds;
+    }
+
+    final json = jsonEncode(payload);
     _webController!.evaluateJavascript(
       source: 'window.updateGameState(${jsonEncode(json)});',
     );
+  }
+
+  Map<String, dynamic> _calculateValidTiles(ClueGameState gameState) {
+    const boardMap = BoardMap();
+    final validator = ValidateMovement(boardMap: boardMap);
+    final List<Map<String, dynamic>> tiles = [];
+    final List<String> roomIds = [];
+
+    // Explorar todas las casillas del grid para pasillos y puertas
+    for (int x = 0; x < boardMap.columns; x++) {
+      for (int y = 0; y < boardMap.rows; y++) {
+        final tileType = boardMap.getTileType(x, y);
+
+        // Solo casillas de pasillo y puertas (movimiento normal)
+        if (tileType == TileType.walkway || tileType == TileType.door) {
+          final isValid = validator.call(
+            gameState: gameState,
+            target: Position(x: x, y: y),
+          );
+          if (isValid) {
+            tiles.add({
+              'x': x,
+              'y': y,
+              'type': tileType == TileType.door ? 'door' : 'walkway',
+            });
+          }
+        }
+      }
+    }
+
+    // Verificar habitaciones alcanzables
+    const roomIdList = [
+      'study',
+      'hall',
+      'lounge',
+      'library',
+      'billiard_room',
+      'dining_room',
+      'conservatory',
+      'ballroom',
+      'kitchen',
+    ];
+    for (final roomId in roomIdList) {
+      final isValid = validator.call(
+        gameState: gameState,
+        target: Position(x: 0, y: 0, roomId: roomId),
+      );
+      if (isValid) roomIds.add(roomId);
+    }
+
+    return {'tiles': tiles, 'roomIds': roomIds};
   }
 
   void _handleGridClick(Map<String, dynamic> msg) {
@@ -145,7 +219,7 @@ class _Board3DWidgetState extends State<Board3DWidget> {
           final gameState = state.gameState;
           final currentPlayerIndex = gameState.currentTurnIndex;
 
-          // Check if it's the current player's turn
+          // Checar que el jugador actual es el humano y que estamos en la fase de movimiento
           final currentPlayer = gameState.players[currentPlayerIndex];
           final currentPlayerId = currentPlayer.card.id;
 
@@ -159,7 +233,6 @@ class _Board3DWidgetState extends State<Board3DWidget> {
             );
 
             if (isValid) {
-              // Emit the move character event
               context.read<GameBloc>().add(
                 MoveCharacterEvent(x: x, y: y, roomId: null),
               );
@@ -211,7 +284,6 @@ class _Board3DWidgetState extends State<Board3DWidget> {
   }
 }
 
-// Animation info class to track active animations
 class AnimationInfo {
   final String playerId;
   final List<List<double>> path;

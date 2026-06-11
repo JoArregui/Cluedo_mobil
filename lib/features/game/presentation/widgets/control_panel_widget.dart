@@ -48,12 +48,17 @@ class ControlPanelWidget extends StatelessWidget {
             enabled: isMyTurn && (phase == GamePhase.rolling || phase == GamePhase.moving || phase == GamePhase.suggesting),
             onPressed: () => _handleAccusation(context),
           ),
+          _ActionButton(
+            icon: Icons.skip_next,
+            label: "Pasar",
+            enabled: isMyTurn && phase == GamePhase.suggesting,
+            onPressed: () => context.read<GameBloc>().add(const PassTurnEvent()),
+          ),
         ],
       ),
     );
   }
 
-  // (Dentro de control_panel_widget.dart, reemplaza _handleSuggestion)
   Future<void> _handleSuggestion(BuildContext context) async {
     final currentRoomId = state.gameState.currentCharacter.position.roomId;
     if (currentRoomId == null) return;

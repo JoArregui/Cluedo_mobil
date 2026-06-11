@@ -15,7 +15,7 @@ class RoomNarrativeOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return Positioned.fill(
       child: GestureDetector(
-        onTap: onClose, // Usamos la función pasada por parámetro
+        onTap: onClose, 
         child: Container(
           decoration: BoxDecoration(
             image: DecorationImage(

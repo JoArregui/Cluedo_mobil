@@ -1,7 +1,6 @@
 import '../../domain/entities/card.dart';
 
 class ClueCardModel {
-  // Factory que produce directamente el subtipo correcto de ClueCard
   static ClueCard fromJson(Map<String, dynamic> json) {
     final id     = json['id'] as String;
     final nameEs = json['name_es'] as String;
@@ -25,8 +24,15 @@ class ClueCardModel {
           nameEn: nameEn,
           secretPassageToRoomId: json['secret_passage_to_room_id'] as String?,
         );
+      case 'clue':
+        return ClueCardClass(
+          id: id,
+          nameEs: nameEs,
+          nameEn: nameEn,
+          description: json['description'] as String? ?? '',
+        );
       default:
-        throw ArgumentError('Tipo de carta desconocido en el CMS: $type');
+        throw ArgumentError('Tipo de carta desconocido: $type');
     }
   }
 }
