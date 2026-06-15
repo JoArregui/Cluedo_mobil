@@ -24,6 +24,12 @@ class ClueCardModel {
           nameEn: nameEn,
           secretPassageToRoomId: json['secret_passage_to_room_id'] as String?,
         );
+      case 'clue':
+        return ClueCardImpl(
+          id: id,
+          nameEs: nameEs,
+          nameEn: nameEn,
+        );
       default:
         throw ArgumentError('Tipo de carta desconocido: $type');
     }

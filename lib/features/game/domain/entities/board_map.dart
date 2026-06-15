@@ -1,5 +1,6 @@
 import 'position.dart';
 import 'tile_type.dart';
+import 'dart:math';
 
 class BoardMap {
   final int columns = 24;
@@ -106,6 +107,89 @@ class BoardMap {
     return getAllDoors()
         .where((d) => _isAdjacentToRoom(d, roomId))
         .toList();
+  }
+
+  /// Returns a random walkable position inside the specified room.
+  /// Returns null if the roomId is invalid or no walkable positions found.
+  Position? getRandomWalkablePositionInRoom(String roomId, Random random) {
+    // Define room boundaries based on roomId
+    int xStart, xEnd, yStart, yEnd;
+    switch (roomId) {
+      case 'study':
+        xStart = 1;
+        xEnd = 6;
+        yStart = 1;
+        yEnd = 6;
+        break;
+      case 'hall':
+        xStart = 9;
+        xEnd = 14;
+        yStart = 1;
+        yEnd = 6;
+        break;
+      case 'lounge':
+        xStart = 17;
+        xEnd = 22;
+        yStart = 1;
+        yEnd = 6;
+        break;
+      case 'library':
+        xStart = 1;
+        xEnd = 6;
+        yStart = 9;
+        yEnd = 14;
+        break;
+      case 'billiard_room':
+        xStart = 9;
+        xEnd = 14;
+        yStart = 9;
+        yEnd = 14;
+        break;
+      case 'dining_room':
+        xStart = 17;
+        xEnd = 22;
+        yStart = 9;
+        yEnd = 14;
+        break;
+      case 'conservatory':
+        xStart = 1;
+        xEnd = 6;
+        yStart = 17;
+        yEnd = 22;
+        break;
+      case 'ballroom':
+        xStart = 9;
+        xEnd = 14;
+        yStart = 17;
+        yEnd = 22;
+        break;
+      case 'kitchen':
+        xStart = 17;
+        xEnd = 22;
+        yStart = 17;
+        yEnd = 22;
+        break;
+      default:
+        return null; // Invalid roomId
+    }
+
+    // Generate random positions until we find a walkable one
+    final attempts = 50; // Prevent infinite loop
+    for (int i = 0; i < attempts; i++) {
+      final x = random.nextInt(xEnd - xStart + 1) + xStart;
+      final y = random.nextInt(yEnd - yStart + 1) + yStart;
+      final tileType = getTileType(x, y);
+      if (tileType == TileType.room) {
+        return Position(x: x, y: y, roomId: roomId);
+      }
+      // If we find a door position within the room bounds, skip it
+      // (though doors should be at the boundaries, not inside 6x6 rooms)
+    }
+
+    // Fallback: return center of room if no walkable found after attempts
+    final xCenter = (xStart + xEnd) ~/ 2;
+    final yCenter = (yStart + yEnd) ~/ 2;
+    return Position(x: xCenter, y: yCenter, roomId: roomId);
   }
 
   bool _isAdjacentToRoom(Position door, String roomId) {

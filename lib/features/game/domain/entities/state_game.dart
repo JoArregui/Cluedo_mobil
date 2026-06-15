@@ -25,6 +25,7 @@ class ClueGameState {
   final List<int> lastDiceRoll;
   final int? currentDiceResult;
   final List<ClueCard> totalDeck;
+  final List<ClueCard> clueDeck;
   final int? refutingPlayerIndex;
   final List<ClueCard>? currentSuggestion;
   final BoardMap boardMap;
@@ -37,6 +38,7 @@ class ClueGameState {
     required this.solution,
     required this.phase,
     required this.totalDeck,
+    required this.clueDeck,
     required this.boardMap,
     this.lastDiceRoll = const [0, 0],
     this.currentDiceResult,
@@ -48,6 +50,7 @@ class ClueGameState {
 
   factory ClueGameState.initial({
     required List<ClueCard> totalDeck,
+    required List<ClueCard> clueDeck,
     required List<ClueCard> envelope,
     required BoardMap boardMap, // Añadido
     required Map<String, Position> weaponPositions,
@@ -62,6 +65,7 @@ class ClueGameState {
       solution: CaseSolution(character: character, weapon: weapon, room: room),
       phase: GamePhase.rolling,
       totalDeck: totalDeck,
+      clueDeck: clueDeck,
       boardMap: boardMap,
       weaponPositions: weaponPositions,
     );
@@ -77,6 +81,7 @@ class ClueGameState {
     List<int>? lastDiceRoll,
     int? currentDiceResult,
     List<ClueCard>? totalDeck,
+    List<ClueCard>? clueDeck,
     int? refutingPlayerIndex,
     List<ClueCard>? currentSuggestion,
     BoardMap? boardMap,
@@ -91,6 +96,7 @@ class ClueGameState {
       lastDiceRoll: lastDiceRoll ?? this.lastDiceRoll,
       currentDiceResult: currentDiceResult ?? this.currentDiceResult,
       totalDeck: totalDeck ?? this.totalDeck,
+      clueDeck: clueDeck ?? this.clueDeck,
       refutingPlayerIndex: refutingPlayerIndex ?? this.refutingPlayerIndex,
       currentSuggestion: currentSuggestion ?? this.currentSuggestion,
       boardMap: boardMap ?? this.boardMap,

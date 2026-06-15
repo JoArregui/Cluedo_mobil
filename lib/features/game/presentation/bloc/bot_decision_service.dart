@@ -48,7 +48,7 @@ class BotDecisionService {
             if (mem != null) {
               try {
                 final result = _executeBotTurn.call(
-                  gameState: currentState.gameState,
+                  state: currentState.gameState,
                   botMemory: mem,
                 );
                 final newPos = result['newPosition'] as Position;

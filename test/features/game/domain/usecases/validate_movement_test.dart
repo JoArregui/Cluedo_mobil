@@ -39,13 +39,14 @@ void main() {
     );
   }
 
-  /// Helper corregido pasando los parámetros obligatorios 'totalDeck' y 'weaponPositions'
+  /// Helper corregido pasando los parámetros obligatorios 'totalDeck', 'clueDeck' y 'weaponPositions'
   ClueGameState createMockGameState({
     required List<PlayerCharacter> players,
     required int? currentDiceResult,
     required List<int> lastDiceRoll,
     BoardMap? boardMap,
     Map<String, Position> weaponPositions = const {},
+    List<ClueCard> clueDeck = const [],
   }) {
     return ClueGameState(
       players: players,
@@ -55,6 +56,7 @@ void main() {
       currentDiceResult: currentDiceResult,
       lastDiceRoll: lastDiceRoll,
       totalDeck: const [],
+      clueDeck: clueDeck,
       boardMap: boardMap ?? const BoardMap(), // Corregido: Se añade el mapa requerido por el dominio
       weaponPositions: weaponPositions,
     );
@@ -123,11 +125,10 @@ void main() {
 
   // Nuevos tests para entrada a habitación
   test('Debería retornar TRUE si estás en la puerta de una habitación y tienes al menos 1 dado', () {
-    // Posición frente a la puerta de study (puerta en (6,4), study está en x 0-5, y 0-5)
-    // La puerta de study en (6,4) da acceso al study
+    // Puerta de study en (7,3) (derecha del study)
     final gameState = createMockGameState(
-      players: [createMockPlayer(const Position(x: 6, y: 4, roomId: null))], // En la puerta
-      currentDiceResult: 1, // Solo necesitas 1 paso para entrar
+      players: [createMockPlayer(const Position(x: 7, y: 3, roomId: null))], // En la puerta
+      currentDiceResult: 1, // Solo necesitas estar en la puerta para entrar
       lastDiceRoll: const [1, 0],
     );
 

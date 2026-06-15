@@ -64,6 +64,7 @@ void main() {
     GamePhase phase = GamePhase.moving,
     BoardMap? boardMap,
     Map<String, Position> weaponPositions = const {},
+    List<ClueCard> clueDeck = const [],
   }) {
     return ClueGameState(
       players: players,
@@ -73,6 +74,7 @@ void main() {
       currentDiceResult: currentDiceResult,
       lastDiceRoll: lastDiceRoll,
       totalDeck: const [],
+      clueDeck: clueDeck,
       boardMap: boardMap ?? const BoardMap(),
       weaponPositions: weaponPositions,
     );
@@ -95,7 +97,7 @@ void main() {
       botMemory.checkedCards.clear();
 
       final result = executeBotTurn.call(
-        gameState: gameState,
+        state: gameState,
         botMemory: botMemory,
       );
 
@@ -124,7 +126,7 @@ void main() {
       );
 
       final result = executeBotTurn.call(
-        gameState: gameState,
+        state: gameState,
         botMemory: botMemory,
       );
 
@@ -152,7 +154,7 @@ void main() {
       botMemory.markAsChecked('revolver'); // Conocer el revólver
 
       final result = executeBotTurn.call(
-        gameState: gameState,
+        state: gameState,
         botMemory: botMemory,
       );
 
@@ -183,7 +185,7 @@ void main() {
       );
 
       final result = executeBotTurn.call(
-        gameState: gameState,
+        state: gameState,
         botMemory: botMemory,
       );
 

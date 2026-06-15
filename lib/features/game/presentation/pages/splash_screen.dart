@@ -122,7 +122,7 @@ class _SplashScreenState extends State<SplashScreen>
     _titleController.forward();
 
     // Navegar a la siguiente pantalla
-    await Future.delayed(const Duration(milliseconds: 7400));
+    await Future.delayed(const Duration(milliseconds: 8000));
     if (mounted) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(

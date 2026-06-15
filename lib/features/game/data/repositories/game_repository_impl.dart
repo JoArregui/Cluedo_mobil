@@ -11,6 +11,16 @@ class GameRepositoryImpl implements GameRepository {
   final GameLocalDataSource localDataSource;
   final Random _random = Random();
 
+  // Character IDs in clockwise order starting from Miss Scarlett
+  static const List<String> _characterClockwiseOrder = [
+    'scarlett',   // Miss Scarlett
+    'green',      // Reverend Green
+    'peacock',    // Mrs Peacock
+    'plum',       // Prof Plum
+    'orchid',     // Dr Orchid
+    'mustard',    // Colonel Mustard
+  ];
+
   GameRepositoryImpl({required this.localDataSource});
 
   @override
@@ -31,6 +41,10 @@ class GameRepositoryImpl implements GameRepository {
         .where((c) => c.type == CardType.room)
         .cast<RoomCard>()
         .toList();
+    final List<ClueCard> clueCards = fullDeck
+        .where((c) => c.type == CardType.clue)
+        .cast<ClueCard>()
+        .toList();
     // Ensure the selected character is not chosen as secret
     characters.removeWhere((c) => c.id == selectedCharacterId);
 
@@ -49,6 +63,9 @@ class GameRepositoryImpl implements GameRepository {
       ...rooms,
     ];
     remainingCharacterWeaponRoom.shuffle(_random);
+
+    // 5. Barajar el mazo de cartas de pista
+    final List<ClueCard> shuffledClueCards = List.of(clueCards)..shuffle(_random);
 
     // 5. Preparar posiciones iniciales para los tokens (espacios nombrados alrededor del tablero)
     // Definimos seis posiciones iniciales (esquinas y puntos medios de los lados)
@@ -93,20 +110,37 @@ class GameRepositoryImpl implements GameRepository {
     final List<String> availableRoomIds =
         rooms.map((r) => r.id).toList()..shuffle(_random);
     final Map<String, Position> weaponPositions = <String, Position>{};
+    final boardMap = BoardMap();
     for (int i = 0; i < weapons.length; i++) {
       final String roomId = availableRoomIds[i % availableRoomIds.length];
-      // Colocar el arma en una posición dentro de la habitación (usamos coordenadas arbitrarias)
-      // En una implementación completa, se debería elegir un tile caminable dentro de la habitación.
-      weaponPositions[weapons[i].id] = Position(x: 0, y: 0, roomId: roomId);
+      // Colocar el arma en una posición caminable aleatoria dentro de la habitación
+      final weaponPosition = boardMap.getRandomWalkablePositionInRoom(roomId, _random);
+      weaponPositions[weapons[i].id] = weaponPosition ?? Position(x: 0, y: 0, roomId: roomId);
     }
 
-    // 10. Inicializamos el mapa del tablero
-    final boardMap = BoardMap();
+    // Determine the first player in clockwise order
+    int firstPlayerIndex = 0;
+    if (players.isNotEmpty) {
+      // Find the player with the smallest clockwise order index
+      int smallestOrderIndex = _characterClockwiseOrder.length;
+      for (int i = 0; i < players.length; i++) {
+        String characterId = players[i].card.id;
+        int orderIndex = _characterClockwiseOrder.indexOf(characterId);
+        if (orderIndex != -1 && orderIndex < smallestOrderIndex) {
+          smallestOrderIndex = orderIndex;
+          firstPlayerIndex = i;
+        }
+      }
+      // If no standard characters found, default to player 0
+      if (smallestOrderIndex == _characterClockwiseOrder.length) {
+        firstPlayerIndex = 0;
+      }
+    }
 
-    // 11. Devolver el estado inicial
+    // 10. Devolver el estado inicial
     return ClueGameState(
       players: players,
-      currentTurnIndex: 0,
+      currentTurnIndex: firstPlayerIndex,
       solution: CaseSolution(
         character: secretCharacter,
         weapon: secretWeapon,
@@ -114,6 +148,7 @@ class GameRepositoryImpl implements GameRepository {
       ),
       phase: GamePhase.rolling,
       totalDeck: fullDeck,
+      clueDeck: shuffledClueCards,
       boardMap: boardMap,
       weaponPositions: weaponPositions,
       lastDiceRoll: const [0, 0],

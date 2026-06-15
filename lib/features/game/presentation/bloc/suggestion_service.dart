@@ -4,10 +4,10 @@ import '../../domain/entities/card.dart';
 import '../../domain/entities/character.dart';
 import 'game_bloc.dart';
 
-/// Service responsible for suggestion, refutation, and accusation logic.
+/// Servicio responsable de manejar la lógica de sugerencias, refutaciones y acusaciones.
 class SuggestionService {
-  /// Processes a suggestion made by the current player.
-  /// Returns the new [GamePlayReady] state after the suggestion is made.
+  /// Procesa una sugerencia hecha por el jugador actual. Mueve las fichas de personaje y arma a la habitación actual
+  ///  y establece el estado para la fase de refutación.
   GamePlayReady makeSuggestion({
     required ClueGameState state,
     required CharacterCard suspect,
@@ -15,7 +15,6 @@ class SuggestionService {
   }) {
     final currentRoomId = state.currentCharacter.position.roomId;
     if (currentRoomId == null) {
-      // Should not happen if called correctly, but return state unchanged.
       return GamePlayReady(gameState: state, notificationMessage: '');
     }
 
@@ -23,7 +22,7 @@ class SuggestionService {
     final List<ClueCard> sugerencia = [suspect, weapon, roomCard];
     final primerRefutador = (state.currentTurnIndex + 1) % state.players.length;
 
-    // Move the ficha del personaje sospechado a la habitación actual
+    // Mueve la ficha del personaje sospechoso a la habitación actual
     final List<PlayerCharacter> updatedPlayers = List<PlayerCharacter>.from(state.players);
     final int suspectIndex = updatedPlayers.indexWhere((p) => p.card.id == suspect.id);
     if (suspectIndex != -1) {
@@ -66,9 +65,7 @@ class SuggestionService {
     );
   }
 
-  /// Processes a refutation attempt by the current refuting player.
-  /// Returns a tuple of (newState, shownCard). shownCard is the card that was shown
-  /// (if any) so the caller can learn it.
+  /// Procesa una refutación a la sugerencia actual. El jugador que refuta debe mostrar una carta de su mano que coincida con la sugerencia.
   (GamePlayReady, ClueCard?) refuteSuggestion({
     required ClueGameState state,
     required ClueCard? matchingCard,
@@ -80,7 +77,58 @@ class SuggestionService {
 
     final refutadorActualIdx = state.refutingPlayerIndex!;
 
+    // Si se proporciona una tarjeta específica para mostrar 
     if (matchingCard != null) {
+      // Verificar que el jugador actual tenga esta carta
+      final tieneCarta = state.players[refutadorActualIdx].hand
+          .any((c) => c.id == matchingCard.id);
+
+      if (tieneCarta) {
+        final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
+        final newState = state.copyWith(
+          phase: GamePhase.rolling,
+          currentTurnIndex: siguienteTurno,
+          currentSuggestion: null,
+          refutingPlayerIndex: null,
+          currentDiceResult: null,
+        );
+        return (
+          GamePlayReady(
+            gameState: newState,
+            notificationMessage:
+                "${state.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
+          ),
+          matchingCard
+        );
+      } else {
+        // El jugador dice que tiene la carta pero no la tiene - esto no debería pasar
+        // Tratar como si no tuviera cartas para mostrar
+        final siguienteRefutador = (refutadorActualIdx + 1) % state.players.length;
+        final newState = state.copyWith(refutingPlayerIndex: siguienteRefutador);
+        return (
+          GamePlayReady(
+            gameState: newState,
+            notificationMessage:
+                "${state.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
+          ),
+          null
+        );
+      }
+    }
+
+    // Lógica normal: el jugador debe mostrar una carta de su mano que coincida con la sugerencia
+    final playerHand = state.players[refutadorActualIdx].hand;
+    final suggestedCards = state.currentSuggestion!;
+
+    // Encontrar todas las cartas en la mano del jugador que coinciden con la sugerencia
+    final matchingCards = playerHand.where((carta) =>
+        suggestedCards.any((sugerida) => sugerida.id == carta.id)).toList();
+
+    if (matchingCards.isNotEmpty) {
+      // El jugador tiene una o más cartas que coinciden - puede elegir cuál mostrar
+      // Por ahora, elegimos la primera (en una implementación real, esto vendría de la UI)
+      final cardToShow = matchingCards.first;
+
       final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
       final newState = state.copyWith(
         phase: GamePhase.rolling,
@@ -95,43 +143,45 @@ class SuggestionService {
           notificationMessage:
               "${state.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
         ),
-        matchingCard
-      );
-    }
-
-    final siguienteRefutador = (refutadorActualIdx + 1) % state.players.length;
-
-    if (siguienteRefutador == state.currentTurnIndex) {
-      final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
-      final newState = state.copyWith(
-        phase: GamePhase.rolling,
-        currentTurnIndex: siguienteTurno,
-        currentSuggestion: null,
-        refutingPlayerIndex: null,
-        currentDiceResult: null,
-      );
-      return (
-        GamePlayReady(
-          gameState: newState,
-          notificationMessage: "Nadie ha podido refutar la sospecha. ¡Las pistas parecen sólidas!",
-        ),
-        null
+        cardToShow
       );
     } else {
-      final newState = state.copyWith(refutingPlayerIndex: siguienteRefutador);
-      return (
-        GamePlayReady(
-          gameState: newState,
-          notificationMessage:
-              "${state.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
-        ),
-        null
-      );
+      // El jugador no tiene ninguna carta que coincida
+      final siguienteRefutador = (refutadorActualIdx + 1) % state.players.length;
+
+      if (siguienteRefutador == state.currentTurnIndex) {
+        // Todos los jugadores han sido consultados y nadie pudo refutar
+        final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
+        final newState = state.copyWith(
+          phase: GamePhase.rolling,
+          currentTurnIndex: siguienteTurno,
+          currentSuggestion: null,
+          refutingPlayerIndex: null,
+          currentDiceResult: null,
+        );
+        return (
+          GamePlayReady(
+            gameState: newState,
+            notificationMessage: "Nadie ha podido refutar la sospecha. ¡Las pistas parecen sólidas!",
+          ),
+          null
+        );
+      } else {
+        // Pasar al siguiente jugador
+        final newState = state.copyWith(refutingPlayerIndex: siguienteRefutador);
+        return (
+          GamePlayReady(
+            gameState: newState,
+            notificationMessage:
+                "${state.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
+          ),
+          null
+        );
+      }
     }
   }
 
-  /// Processes an accusation made by the current player.
-  /// Returns either a [GameVictory] or a [GamePlayReady] state.
+  /// Procesa una acusación hecha por el jugador actual. Verifica si la acusación es correcta y devuelve el estado resultante.
   Object makeAccusation({
     required ClueGameState state,
     required CharacterCard suspect,
@@ -149,9 +199,14 @@ class SuggestionService {
         winnerName: state.currentCharacter.card.nameEs,
       );
     } else {
+      // Acusación fallida: el jugador es eliminado del juego activo
+      // Pero sigue participando en las refutaciones (debe mostrar cartas cuando se le pide)
       final updatedPlayers = List<PlayerCharacter>.from(state.players);
       final int indexAcusador = state.currentTurnIndex;
 
+      // Marcamos al jugador como que ha hecho una acusación fallida
+      // En una implementación completa, tendríamos un estado especial para esto
+      // Por ahora, lo eliminamos pero el service de refutación todavía le permitirá mostrar cartas
       updatedPlayers[indexAcusador] = updatedPlayers[indexAcusador].copyWith(
         isEliminated: true,
       );
