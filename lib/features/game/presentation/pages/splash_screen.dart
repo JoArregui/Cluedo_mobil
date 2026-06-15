@@ -121,14 +121,14 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 600));
     _titleController.forward();
 
-    // Navegar a la siguiente pantalla 
-    await Future.delayed(const Duration(milliseconds: 3000));
+    // Navegar a la siguiente pantalla
+    await Future.delayed(const Duration(milliseconds: 7400));
     if (mounted) {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 800),
-          pageBuilder: (_, __, ___) => widget.nextScreen,
-          transitionsBuilder: (_, animation, __, child) {
+          pageBuilder: (_, _, _) => widget.nextScreen,
+          transitionsBuilder: (_, animation, _, child) {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
@@ -191,7 +191,7 @@ class _SplashScreenState extends State<SplashScreen>
                   radius: 1.2,
                   colors: [
                     Colors.transparent,
-                    Colors.black.withOpacity(0.72),
+                    Colors.black.withValues(alpha: 0.72),
                   ],
                   stops: const [0.45, 1.0],
                 ),
@@ -291,7 +291,7 @@ class _SplashScreenState extends State<SplashScreen>
                                 colors: [
                                   Colors.transparent,
                                   const Color(0xFFB8955A)
-                                      .withOpacity(_glowAnim.value),
+                                      .withValues(alpha: _glowAnim.value),
                                   Colors.transparent,
                                 ],
                               ),
@@ -314,7 +314,7 @@ class _SplashScreenState extends State<SplashScreen>
                           fontSize: 13,
                           letterSpacing: 6,
                           color: const Color(0xFF9B7E52)
-                              .withOpacity(0.85),
+                              .withValues(alpha: 0.85),
                           fontWeight: FontWeight.w300,
                         ),
                       ),
@@ -355,7 +355,7 @@ class _ScanlinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     const lineGap = 4.0;
     final paint = Paint()
-      ..color = Colors.black.withOpacity(0.18)
+      ..color = Colors.black.withValues(alpha: 0.18)
       ..strokeWidth = 1.0;
 
     for (double y = 0; y < size.height; y += lineGap) {

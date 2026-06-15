@@ -45,15 +45,6 @@ class GameLocalDataSourceImpl implements GameLocalDataSource {
        'secret_passage_to_room_id': 'study'},
     ];
 
-    for (int i = 1; i <= 29; i++) {
-      mockLocalData.add({
-        'id': 'clue_$i',
-        'name_es': 'Pista $i',
-        'name_en': 'Clue $i',
-        'type': 'clue',
-        'description': 'Efecto de pista placeholder $i',
-      });
-    }
 
     return mockLocalData.map(ClueCardModel.fromJson).toList();
   }

@@ -64,7 +64,6 @@ void main() {
     GamePhase phase = GamePhase.moving,
     BoardMap? boardMap,
     Map<String, Position> weaponPositions = const {},
-    List<ClueCardClass> clueDeck = const [],
   }) {
     return ClueGameState(
       players: players,
@@ -76,7 +75,6 @@ void main() {
       totalDeck: const [],
       boardMap: boardMap ?? const BoardMap(),
       weaponPositions: weaponPositions,
-      clueDeck: clueDeck,
     );
   }
 

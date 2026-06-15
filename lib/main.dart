@@ -1,24 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter/services.dart'; 
+import 'package:flutter/services.dart';
 
 import 'features/game/data/datasources/game_local_data_source.dart';
 import 'features/game/data/repositories/game_repository_impl.dart';
+import 'features/game/domain/entities/board_map.dart';
+import 'features/game/domain/usecases/execute_bot_turn.dart';
+import 'features/game/domain/usecases/validate_movement.dart';
 import 'features/game/presentation/bloc/game_bloc.dart';
 import 'features/game/presentation/pages/main_menu_page.dart';
 import 'features/game/presentation/pages/splash_screen.dart';
 
 void main() async {
-
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // Bloqueamos la orientación en modo vertical (retrato) para evitar rotaciones
   // inesperadas que afecten la experiencia de juego
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  
+
   runApp(const ClueApp());
 }
 
@@ -30,11 +32,21 @@ class ClueApp extends StatelessWidget {
     // Definición de dependencias
     final gameLocalDataSource = GameLocalDataSourceImpl();
     final gameRepository = GameRepositoryImpl(localDataSource: gameLocalDataSource);
+    final boardMap = BoardMap();
+    final validateMovement = ValidateMovement(boardMap: boardMap);
+    final executeBotTurn = ExecuteBotTurn(
+      validateMovement: validateMovement,
+      boardMap: boardMap,
+    );
 
     return MultiBlocProvider(
       providers: [
         BlocProvider<GameBloc>(
-          create: (context) => GameBloc(gameRepository: gameRepository),
+          create: (context) => GameBloc(
+            gameRepository: gameRepository,
+            executeBotTurn: executeBotTurn,
+            boardMap: boardMap,
+          ),
         ),
       ],
       child: MaterialApp(

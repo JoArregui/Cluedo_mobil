@@ -31,11 +31,6 @@ class GameRepositoryImpl implements GameRepository {
         .where((c) => c.type == CardType.room)
         .cast<RoomCard>()
         .toList();
-    final List<ClueCardClass> clues = fullDeck
-        .where((c) => c.type == CardType.clue)
-        .cast<ClueCardClass>()
-        .toList();
-
     // Ensure the selected character is not chosen as secret
     characters.removeWhere((c) => c.id == selectedCharacterId);
 
@@ -55,10 +50,7 @@ class GameRepositoryImpl implements GameRepository {
     ];
     remainingCharacterWeaponRoom.shuffle(_random);
 
-    // 5. Barajar las cartas de pista para formar el mazo de pistas
-    final List<ClueCardClass> shuffledClues = List.from(clues)..shuffle(_random);
-
-    // 6. Preparar posiciones iniciales para los tokens (espacios nombrados alrededor del tablero)
+    // 5. Preparar posiciones iniciales para los tokens (espacios nombrados alrededor del tablero)
     // Definimos seis posiciones iniciales (esquinas y puntos medios de los lados)
     final List<Position> startPositions = [
       const Position(x: 1, y: 1),   // cerca de esquina superior izquierda
@@ -70,7 +62,7 @@ class GameRepositoryImpl implements GameRepository {
     ];
     startPositions.shuffle(_random);
 
-    // 7. Crear jugadores basado en numberOfPlayers
+    // 6. Crear jugadores basado en numberOfPlayers
     final List<PlayerCharacter> players = <PlayerCharacter>[];
     for (int i = 0; i < numberOfPlayers; i++) {
       // Asignar un personaje aleatorio del mazo de personajes restantes
@@ -124,7 +116,6 @@ class GameRepositoryImpl implements GameRepository {
       totalDeck: fullDeck,
       boardMap: boardMap,
       weaponPositions: weaponPositions,
-      clueDeck: shuffledClues,
       lastDiceRoll: const [0, 0],
       currentDiceResult: null,
       refutingPlayerIndex: null,

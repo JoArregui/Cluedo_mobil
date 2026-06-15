@@ -106,7 +106,7 @@ class ControlPanelWidget extends StatelessWidget {
     if (currentRoomId == null) return;
 
     final suspect = await _pickCard<CharacterCard>(context, 'Elige sospechoso');
-    if (suspect == null) return;
+    if (suspect == null || !context.mounted) return;
     final weapon = await _pickCard<WeaponCard>(context, 'Elige arma');
     if (weapon == null || !context.mounted) return;
 
@@ -117,9 +117,9 @@ class ControlPanelWidget extends StatelessWidget {
 
   Future<void> _handleAccusation(BuildContext context) async {
     final suspect = await _pickCard<CharacterCard>(context, 'Acusar: Sospechoso');
-    if (suspect == null) return;
+    if (suspect == null || !context.mounted) return;
     final weapon = await _pickCard<WeaponCard>(context, 'Acusar: Arma');
-    if (weapon == null) return;
+    if (weapon == null || !context.mounted) return;
     final room = await _pickCard<RoomCard>(context, 'Acusar: Habitación');
     if (room == null || !context.mounted) return;
 

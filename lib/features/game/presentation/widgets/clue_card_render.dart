@@ -30,10 +30,6 @@ class ClueCardRender extends StatelessWidget {
         cardColor = Colors.brown[700]!;
         cardIcon = Icons.gite_rounded;
         break;
-      case CardType.clue:
-        cardColor = Colors.purple[700]!;
-        cardIcon = Icons.lightbulb_outline;
-        break;
     }
 
     return Container(

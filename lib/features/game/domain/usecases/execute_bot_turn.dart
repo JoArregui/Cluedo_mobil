@@ -5,6 +5,7 @@ import '../entities/clue_deck.dart';
 import '../entities/card.dart';
 import '../entities/position.dart';
 import '../entities/board_map.dart';
+import '../entities/tile_type.dart';
 import 'validate_movement.dart';
 
 class ExecuteBotTurn {
@@ -34,36 +35,84 @@ class ExecuteBotTurn {
     }
 
     Position chosenPosition = bot.position;
-    bool enteredRoom = false;
 
-    // 2. Si hay dados lanzados, buscar el movimiento óptimo hacia la habitación objetivo
-    if (gameState.currentDiceResult != null && targetRoomId != null) {
-      final doors = boardMap.getDoorsForRoom(targetRoomId);
-      
-      for (var door in doors) {
-        final targetPos = Position(x: door.x, y: door.y, roomId: targetRoomId);
-        if (validateMovement(gameState: gameState, target: targetPos)) {
-          chosenPosition = targetPos;
-          enteredRoom = true;
-          break;
-        }
+    // 2. Si hay dados lanzados, mover exactamente la cantidad de pasos indicada
+    if (gameState.currentDiceResult != null) {
+      int steps = gameState.currentDiceResult!;
+      // Preferir mover hacia una puerta de la habitación objetivo si existe
+      List<Position>? targetDoors;
+      if (targetRoomId != null) {
+        targetDoors = boardMap.getDoorsForRoom(targetRoomId);
       }
 
-      // Si no llega a la habitación, moverse por el pasillo acercándose a la puerta más cercana
-      if (!enteredRoom && doors.isNotEmpty) {
-        final targetDoor = doors.first;
-        // Caminar en dirección a la puerta de manera básica dentro del rango de dados
-        int steps = gameState.currentDiceResult!;
-        int dx = (targetDoor.x - bot.position.x).sign;
-        int dy = (targetDoor.y - bot.position.y).sign;
-
-        int targetX = (bot.position.x + (dx * steps)).clamp(0, 23);
-        int targetY = (bot.position.y + (dy * steps)).clamp(0, 24);
-        
-        final testPos = Position(x: targetX, y: targetY, roomId: null);
-        if (validateMovement(gameState: gameState, target: testPos)) {
-          chosenPosition = testPos;
+      // Intentar hasta 5 direcciones diferentes para usar exactamente los pasos
+      bool moved = false;
+      for (int attempt = 0; attempt < 5 && !moved; attempt++) {
+        int dx, dy;
+        if (targetDoors != null && targetDoors.isNotEmpty) {
+          // Elegir una puerta al azar de las disponibles
+          final door = targetDoors[_random.nextInt(targetDoors.length)];
+          dx = (door.x - bot.position.x).sign;
+          dy = (door.y - bot.position.y).sign;
+          // Si ya estamos en la puerta, elegir dirección aleatoria
+          if (dx == 0 && dy == 0) {
+            dx = [_random.nextBool() ? -1 : 1, 0][_random.nextInt(2)];
+            dy = dx == 0 ? [_random.nextBool() ? -1 : 1, 0][_random.nextInt(2)] : 0;
+          }
+        } else {
+          // Dirección completamente aleatoria (no quedarse quieto)
+          dx = [_random.nextBool() ? -1 : 1, 0][_random.nextInt(2)];
+          dy = dx == 0 ? [_random.nextBool() ? -1 : 1, 0][_random.nextInt(2)] : 0;
         }
+
+        Position pos = bot.position;
+        bool valid = true;
+        for (int i = 0; i < steps; i++) {
+          final nx = pos.x + dx;
+          final ny = pos.y + dy;
+          final npos = Position(x: nx, y: ny, roomId: null);
+          // Verificar límites
+          if (nx < 0 || nx >= boardMap.columns || ny < 0 || ny >= boardMap.rows) {
+            valid = false;
+            break;
+          }
+          // Verificar que no sea pared
+          final tileType = boardMap.getTileType(nx, ny);
+          if (tileType == TileType.wall) {
+            valid = false;
+            break;
+          }
+          // Verificar que no esté ocupada por otro jugador (solo en pasillos)
+          final isOccupied = gameState.players.any((p) =>
+              !p.isEliminated &&
+              p.position.roomId == null &&
+              p.position.x == nx &&
+              p.position.y == ny);
+          if (isOccupied) {
+            valid = false;
+            break;
+          }
+          pos = npos;
+        }
+        if (valid) {
+          chosenPosition = pos;
+          moved = true;
+          // Verificar si entró a una habitación (si la posición final tiene roomId != null)
+          // En nuestro movimiento paso a paso, mantuvimos roomId null; para entrar a habitación
+          // necesitamos que el último paso sea a una puerta y luego entrar.
+          // Simplificamos: si la posición final es una puerta de alguna habitación, consideramos entrada.
+          if (targetDoors != null) {
+            final isDoor = targetDoors.any((d) => d.x == pos.x && d.y == pos.y);
+            if (isDoor) {
+              // Entrar a la habitación estableciendo roomId
+              chosenPosition = Position(x: pos.x, y: pos.y, roomId: targetRoomId);
+            }
+          }
+        }
+      }
+      // Si no se pudo mover en ninguna dirección, quedarse en posición (pero al menos intentamos)
+      if (!moved) {
+        chosenPosition = bot.position;
       }
     }
 
@@ -72,7 +121,7 @@ class ExecuteBotTurn {
     final currentRoomId = chosenPosition.roomId;
 
     if (currentRoomId != null) {
-      final suspect = unknownCharacters.isNotEmpty 
+      final suspect = unknownCharacters.isNotEmpty
           ? unknownCharacters[_random.nextInt(unknownCharacters.length)] as CharacterCard
           : ClueDeck.characters[_random.nextInt(ClueDeck.characters.length)];
 

@@ -1,7 +1,7 @@
 import 'character.dart';
 import 'card.dart';
 import 'board_map.dart';
-import 'position.dart'; 
+import 'position.dart';
 
 enum GamePhase { rolling, moving, suggesting, refuting, narrative, gameOver }
 
@@ -28,9 +28,8 @@ class ClueGameState {
   final int? refutingPlayerIndex;
   final List<ClueCard>? currentSuggestion;
   final BoardMap boardMap;
-  final RoomCard? currentRoomForNarrative; 
-  final Map<String, Position> weaponPositions; 
-  final List<ClueCardClass> clueDeck; 
+  final RoomCard? currentRoomForNarrative;
+  final Map<String, Position> weaponPositions;
 
   const ClueGameState({
     required this.players,
@@ -45,7 +44,6 @@ class ClueGameState {
     this.currentSuggestion,
     this.currentRoomForNarrative,
     required this.weaponPositions,
-    required this.clueDeck,
   });
 
   factory ClueGameState.initial({
@@ -53,7 +51,6 @@ class ClueGameState {
     required List<ClueCard> envelope,
     required BoardMap boardMap, // Añadido
     required Map<String, Position> weaponPositions,
-    required List<ClueCardClass> clueDeck,
   }) {
     final character = envelope.firstWhere((c) => c.type == CardType.character) as CharacterCard;
     final weapon = envelope.firstWhere((c) => c.type == CardType.weapon) as WeaponCard;
@@ -67,7 +64,6 @@ class ClueGameState {
       totalDeck: totalDeck,
       boardMap: boardMap,
       weaponPositions: weaponPositions,
-      clueDeck: clueDeck,
     );
   }
 
@@ -85,7 +81,7 @@ class ClueGameState {
     List<ClueCard>? currentSuggestion,
     BoardMap? boardMap,
     Map<String, Position>? weaponPositions,
-    List<ClueCardClass>? clueDeck,
+    RoomCard? currentRoomForNarrative,
   }) {
     return ClueGameState(
       players: players ?? this.players,
@@ -99,7 +95,7 @@ class ClueGameState {
       currentSuggestion: currentSuggestion ?? this.currentSuggestion,
       boardMap: boardMap ?? this.boardMap,
       weaponPositions: weaponPositions ?? this.weaponPositions,
-      clueDeck: clueDeck ?? this.clueDeck,
+      currentRoomForNarrative: currentRoomForNarrative ?? this.currentRoomForNarrative,
     );
   }
 }

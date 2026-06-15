@@ -54,7 +54,11 @@ class _GameBoardPageState extends State<GameBoardPage> {
                 children: [
                   GameHeaderWidget(
                     jugadorActual: gameState.currentCharacter,
-                    gameState: gameState,
+                    gameState: state,
+                    onBotTimeout: () {
+                      // When bot's time runs out, force a pass turn
+                      context.read<GameBloc>().add(const PassTurnEvent());
+                    },
                   ),
                   _buildHandView(gameState.currentCharacter.hand),
                   Expanded(

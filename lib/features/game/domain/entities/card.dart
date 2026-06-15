@@ -1,4 +1,4 @@
-enum CardType { character, weapon, room, clue }
+enum CardType { character, weapon, room }
 
 abstract class ClueCard {
   final String id;
@@ -44,14 +44,4 @@ class RoomCard extends ClueCard {
   }) : super(type: CardType.room);
 }
 
-class ClueCardClass extends ClueCard {
-  final String description; 
-
-  const ClueCardClass({
-    required super.id,
-    required super.nameEs,
-    required super.nameEn,
-    required this.description,
-  }) : super(type: CardType.clue);
-}
 
