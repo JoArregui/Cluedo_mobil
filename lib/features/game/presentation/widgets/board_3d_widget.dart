@@ -106,8 +106,7 @@ class _Board3DWidgetState extends State<Board3DWidget> {
             _syncState(state);
           }
         },
-        onConsoleMessage: (controller, message) {
-        },
+        onConsoleMessage: (controller, message) {},
       ),
     );
   }
@@ -142,15 +141,18 @@ class _Board3DWidgetState extends State<Board3DWidget> {
       validRoomIds = result['roomIds'] as List<String>;
     }
 
-    final isHumanRolling = gameState.phase == GamePhase.rolling &&
-        gameState.currentTurnIndex == 0;
+    final isHumanRolling =
+        gameState.phase == GamePhase.rolling && gameState.currentTurnIndex == 0;
 
     // Construir payload: incluir validTiles y validRoomIds solo en fase moving del humano
+    final boardMap = const BoardMap();
+
     final Map<String, dynamic> payload = {
       'players': players,
       'phase': gameState.phase.name,
       'showDice': isHumanRolling,
       'lastDiceRoll': gameState.lastDiceRoll,
+      'boardLayout': boardMap.getBoardLayout(),
     };
     if (gameState.phase == GamePhase.moving &&
         gameState.currentTurnIndex == 0) {
@@ -170,22 +172,25 @@ class _Board3DWidgetState extends State<Board3DWidget> {
     final List<Map<String, dynamic>> tiles = [];
     final List<String> roomIds = [];
 
-    // Explorar todas las casillas del grid para pasillos y puertas
+    // Explorar todas las casillas del grid para pasillos
     for (int x = 0; x < boardMap.columns; x++) {
       for (int y = 0; y < boardMap.rows; y++) {
         final tileType = boardMap.getTileType(x, y);
 
-        // Solo casillas de pasillo y puertas (movimiento normal)
-        if (tileType == TileType.walkway || tileType == TileType.door) {
+        // Las casillas físicas de pasillo (incluyen los "doorway": aquellas
+        // justo enfrente del hueco de la puerta virtual). Las puertas NO son
+        // casillas físicas, son huecos invisibles en la pared.
+        if (tileType == TileType.walkway) {
           final isValid = validator.call(
             gameState: gameState,
             target: Position(x: x, y: y),
           );
           if (isValid) {
+            final bool isDoorway = boardMap.isDoorwayTile(x, y);
             tiles.add({
               'x': x,
               'y': y,
-              'type': tileType == TileType.door ? 'door' : 'walkway',
+              'type': isDoorway ? 'doorway' : 'walkway',
             });
           }
         }
@@ -193,22 +198,11 @@ class _Board3DWidgetState extends State<Board3DWidget> {
     }
 
     // Verificar habitaciones alcanzables
-    const roomIdList = [
-      'study',
-      'hall',
-      'lounge',
-      'library',
-      'billiard_room',
-      'dining_room',
-      'conservatory',
-      'ballroom',
-      'kitchen',
-    ];
-    for (final roomId in roomIdList) {
-      final isValid = validator.call(
-        gameState: gameState,
-        target: Position(x: 0, y: 0, roomId: roomId),
-      );
+    for (final roomId in boardMap.roomIds) {
+      final roomTarget = boardMap.getRoomCenterPosition(roomId);
+      if (roomTarget == null) continue;
+
+      final isValid = validator.call(gameState: gameState, target: roomTarget);
       if (isValid) roomIds.add(roomId);
     }
 
@@ -263,10 +257,7 @@ class _Board3DWidgetState extends State<Board3DWidget> {
       }
 
       final validator = ValidateMovement(boardMap: boardMap);
-      final isValid = validator.call(
-        gameState: gameState,
-        target: target,
-      );
+      final isValid = validator.call(gameState: gameState, target: target);
 
       if (isValid) {
         context.read<GameBloc>().add(

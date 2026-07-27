@@ -1,6 +1,7 @@
+import 'dart:math';
+
 import 'position.dart';
 import 'tile_type.dart';
-import 'dart:math';
 
 class BoardMap {
   final int columns = 24;
@@ -8,201 +9,318 @@ class BoardMap {
 
   const BoardMap();
 
-  // ── Grid 24x25 ────────────────────────────────────────────────────────────
-  //
-  //  x:  0   | 1-6        | 7-8     | 9-14       | 15-16   | 17-22      | 23
-  //      borde  hab col A   pasillo   hab col B    pasillo   hab col C   borde
-  //
-  //  y:  0   | 1-6        | 7-8     | 9-14       | 15-16   | 17-22      | 23-24
-  //      borde  hab fila 1  pasillo   hab fila 2   pasillo   hab fila 3  borde
-  //
-  //  Habitaciones (todas 6x6):
-  //    study        x:1-6,   y:1-6
-  //    hall         x:9-14,  y:1-6
-  //    lounge       x:17-22, y:1-6
-  //    library      x:1-6,   y:9-14
-  //    billiard_room x:9-14, y:9-14
-  //    dining_room  x:17-22, y:9-14
-  //    conservatory x:1-6,   y:17-22
-  //    ballroom     x:9-14,  y:17-22
-  //    kitchen      x:17-22, y:17-22
+  static const Map<String, _Bounds> _rooms = {
+    'study': _Bounds(1, 5, 1, 4),
+    'hall': _Bounds(9, 13, 1, 5),
+    'lounge': _Bounds(17, 21, 1, 5),
+    'library': _Bounds(1, 6, 7, 10),
+    'dining_room': _Bounds(16, 22, 8, 14),
+    'billiard_room': _Bounds(1, 5, 12, 16),
+    'conservatory': _Bounds(1, 5, 18, 22),
+    'ballroom': _Bounds(8, 14, 18, 22),
+    'kitchen': _Bounds(17, 21, 18, 22),
+  };
 
+  /// Conexiones VIRTUALES de puertas (la puerta NO es una casilla física: es el
+  /// hueco en la pared. El valor aquí es la CASILLA DE PASILLO (walkway) que
+  /// queda justo enfrente de dicha abertura. Para entrar/salir, la ficha tiene
+  /// que alcanzar esta casilla de pasillo y desde allí cruzar (+1 paso extra).
+  /// Conexiones de puertas según la imagen board_texturedoors.png.
+  /// Cada Position es la CASILLA DE PASILLO (walkway) que queda frente al hueco
+  /// de la puerta virtual. Para entrar/salir, la ficha tiene que alcanzar esta
+  /// casilla y desde allí cruzar (+1 paso extra).
+  static const Map<String, List<Position>> _doorConnections = {
+    'study': [
+      Position(x: 6, y: 4),
+    ],
+    'hall': [
+      Position(x: 8, y: 5),
+      Position(x: 11, y: 6),
+    ],
+    'lounge': [
+      Position(x: 16, y: 4),
+      Position(x: 19, y: 6),
+    ],
+    'library': [
+      Position(x: 7, y: 8),
+      Position(x: 6, y: 11),
+    ],
+    'dining_room': [
+      Position(x: 15, y: 11),
+      Position(x: 15, y: 13),
+    ],
+    'billiard_room': [
+      Position(x: 6, y: 13),
+      Position(x: 6, y: 15),
+    ],
+    'conservatory': [
+      Position(x: 6, y: 19),
+      Position(x: 6, y: 21),
+    ],
+    'ballroom': [
+      Position(x: 8, y: 17),
+      Position(x: 14, y: 17),
+      Position(x: 15, y: 15),
+    ],
+    'kitchen': [
+      Position(x: 16, y: 20),
+      Position(x: 19, y: 17),
+    ],
+  };
+
+  static const Map<String, Position> characterStartPositions = {
+    'scarlett': Position(x: 16, y: 0),
+    'plum': Position(x: 0, y: 5),
+    'mustard': Position(x: 23, y: 7),
+    'white': Position(x: 23, y: 15),
+    'green': Position(x: 9, y: 24),
+    'peacock': Position(x: 0, y: 17),
+  };
+
+  static const List<Position> _edgeExitPositions = [
+    Position(x: 16, y: 0),
+    Position(x: 0, y: 5),
+    Position(x: 23, y: 7),
+    Position(x: 23, y: 15),
+    Position(x: 9, y: 24),
+    Position(x: 0, y: 17),
+  ];
+
+  static const List<_Bounds> _inaccessibleZones = [
+    _Bounds(9, 14, 8, 14),
+    _Bounds(7, 8, 1, 3),
+    _Bounds(15, 15, 1, 4),
+    _Bounds(7, 8, 21, 24),
+    _Bounds(16, 16, 22, 24),
+    _Bounds(22, 23, 21, 24),
+  ];
+
+  bool isInsideGrid(int x, int y) {
+    return x >= 0 && x < columns && y >= 0 && y < rows;
+  }
+
+  bool isSelectableTile(int x, int y) {
+    final type = getTileType(x, y);
+    return type == TileType.walkway || type == TileType.room;
+  }
+
+  /// Devuelve el tipo de la casilla FÍSICA del tablero.
+  /// Importante: las PUERTAS no son casillas físicas, son huecos virtuales en la
+  /// pared. Por tanto getTileType NUNCA devuelve TileType.door. La casilla que
+  /// queda "frente al hueco" es una walkway normal.
   TileType getTileType(int x, int y) {
-    if (_isWall(x, y)) return TileType.wall;
-    if (_isDoor(x, y)) return TileType.door;
+    if (!isInsideGrid(x, y)) return TileType.wall;
     if (getRoomIdAt(x, y) != null) return TileType.room;
+    if (_isWall(x, y)) return TileType.wall;
+    if (_isOuterBorder(x, y) && !_isEdgeExit(x, y)) return TileType.wall;
     return TileType.walkway;
   }
 
   String? getRoomIdAt(int x, int y) {
-    // Fila 1
-    if (x >= 1  && x <= 6  && y >= 1  && y <= 6)  return 'study';
-    if (x >= 9  && x <= 14 && y >= 1  && y <= 6)  return 'hall';
-    if (x >= 17 && x <= 22 && y >= 1  && y <= 6)  return 'lounge';
-    // Fila 2
-    if (x >= 1  && x <= 6  && y >= 9  && y <= 14) return 'library';
-    if (x >= 9  && x <= 14 && y >= 9  && y <= 14) return 'billiard_room';
-    if (x >= 17 && x <= 22 && y >= 9  && y <= 14) return 'dining_room';
-    // Fila 3
-    if (x >= 1  && x <= 6  && y >= 17 && y <= 22) return 'conservatory';
-    if (x >= 9  && x <= 14 && y >= 17 && y <= 22) return 'ballroom';
-    if (x >= 17 && x <= 22 && y >= 17 && y <= 22) return 'kitchen';
+    if (!isInsideGrid(x, y)) return null;
+    for (final entry in _rooms.entries) {
+      if (entry.value.contains(x, y)) return entry.key;
+    }
     return null;
   }
 
-  bool _isWall(int x, int y) {
-    // Sin muros interiores — los pasillos de 2 tiles garantizan navegación fluida
+  Position getStartPositionForCharacter(String characterId) {
+    return characterStartPositions[characterId] ?? const Position(x: 0, y: 0);
+  }
+
+  List<String> get roomIds => _rooms.keys.toList(growable: false);
+
+  /// Devuelve true si la casilla de pasillo (x, y) es "el punto de acceso" a
+  /// alguna habitación (está justo enfrente del hueco de una puerta virtual).
+  bool isDoorwayTile(int x, int y) {
+    final tile = getTileType(x, y);
+    if (tile != TileType.walkway) return false;
+    for (final entry in _doorConnections.entries) {
+      for (final p in entry.value) {
+        if (p.x == x && p.y == y) return true;
+      }
+    }
     return false;
   }
 
-  bool _isDoor(int x, int y) {
-    return getAllDoors().any((d) => d.x == x && d.y == y);
+  /// Dado un punto de pasillo que es doorway (frente a hueco), devuelve qué
+  /// habitaciones tienen acceso desde ahí. Normalmente una, pero podría haber
+  /// shared access.
+  List<String> roomIdsReachableFromDoorwayTile(int x, int y) {
+    final ids = <String>[];
+    for (final entry in _doorConnections.entries) {
+      for (final p in entry.value) {
+        if (p.x == x && p.y == y) {
+          ids.add(entry.key);
+          break;
+        }
+      }
+    }
+    return ids;
   }
 
-  List<Position> getAllDoors() {
-    return const [
-      // study (x:1-6, y:1-6)
-      Position(x: 7, y: 3),   // salida derecha  → pasillo x:7-8
-      Position(x: 3, y: 7),   // salida inferior → pasillo y:7-8
+  Map<String, dynamic> getBoardLayout() {
+    final rooms = _rooms.entries
+        .map(
+          (entry) => {
+            'id': entry.key,
+            'x0': entry.value.x0,
+            'x1': entry.value.x1,
+            'y0': entry.value.y0,
+            'y1': entry.value.y1,
+          },
+        )
+        .toList(growable: false);
 
-      // hall (x:9-14, y:1-6)
-      Position(x: 10, y: 7),  // salida inferior izquierda
-      Position(x: 13, y: 7),  // salida inferior derecha
-
-      // lounge (x:17-22, y:1-6)
-      Position(x: 16, y: 3),  // salida izquierda → pasillo x:15-16
-      Position(x: 19, y: 7),  // salida inferior
-
-      // library (x:1-6, y:9-14)
-      Position(x: 3, y: 8),   // salida superior → pasillo y:7-8
-      Position(x: 7, y: 11),  // salida derecha  → pasillo x:7-8
-      Position(x: 3, y: 15),  // salida inferior → pasillo y:15-16
-
-      // billiard_room (x:9-14, y:9-14)
-      Position(x: 11, y: 8),  // salida superior
-      Position(x: 8,  y: 11), // salida izquierda
-      Position(x: 15, y: 11), // salida derecha
-      Position(x: 11, y: 15), // salida inferior
-
-      // dining_room (x:17-22, y:9-14)
-      Position(x: 19, y: 8),  // salida superior
-      Position(x: 16, y: 11), // salida izquierda
-      Position(x: 19, y: 15), // salida inferior
-
-      // conservatory (x:1-6, y:17-22)
-      Position(x: 3, y: 16),  // salida superior → pasillo y:15-16
-      Position(x: 7, y: 19),  // salida derecha  → pasillo x:7-8
-
-      // ballroom (x:9-14, y:17-22)
-      Position(x: 10, y: 16), // salida superior izquierda
-      Position(x: 13, y: 16), // salida superior derecha
-
-      // kitchen (x:17-22, y:17-22)
-      Position(x: 19, y: 16), // salida superior
-      Position(x: 16, y: 19), // salida izquierda
-    ];
-  }
-
-  List<Position> getDoorsForRoom(String roomId) {
-    return getAllDoors()
-        .where((d) => _isAdjacentToRoom(d, roomId))
-        .toList();
-  }
-
-  /// Returns a random walkable position inside the specified room.
-  /// Returns null if the roomId is invalid or no walkable positions found.
-  Position? getRandomWalkablePositionInRoom(String roomId, Random random) {
-    // Define room boundaries based on roomId
-    int xStart, xEnd, yStart, yEnd;
-    switch (roomId) {
-      case 'study':
-        xStart = 1;
-        xEnd = 6;
-        yStart = 1;
-        yEnd = 6;
-        break;
-      case 'hall':
-        xStart = 9;
-        xEnd = 14;
-        yStart = 1;
-        yEnd = 6;
-        break;
-      case 'lounge':
-        xStart = 17;
-        xEnd = 22;
-        yStart = 1;
-        yEnd = 6;
-        break;
-      case 'library':
-        xStart = 1;
-        xEnd = 6;
-        yStart = 9;
-        yEnd = 14;
-        break;
-      case 'billiard_room':
-        xStart = 9;
-        xEnd = 14;
-        yStart = 9;
-        yEnd = 14;
-        break;
-      case 'dining_room':
-        xStart = 17;
-        xEnd = 22;
-        yStart = 9;
-        yEnd = 14;
-        break;
-      case 'conservatory':
-        xStart = 1;
-        xEnd = 6;
-        yStart = 17;
-        yEnd = 22;
-        break;
-      case 'ballroom':
-        xStart = 9;
-        xEnd = 14;
-        yStart = 17;
-        yEnd = 22;
-        break;
-      case 'kitchen':
-        xStart = 17;
-        xEnd = 22;
-        yStart = 17;
-        yEnd = 22;
-        break;
-      default:
-        return null; // Invalid roomId
+    final walls = <Map<String, int>>[];
+    for (final zone in _inaccessibleZones) {
+      for (var x = zone.x0; x <= zone.x1; x++) {
+        for (var y = zone.y0; y <= zone.y1; y++) {
+          walls.add({'x': x, 'y': y});
+        }
+      }
     }
 
-    // Generate random positions until we find a walkable one
-    final attempts = 50; // Prevent infinite loop
-    for (int i = 0; i < attempts; i++) {
-      final x = random.nextInt(xEnd - xStart + 1) + xStart;
-      final y = random.nextInt(yEnd - yStart + 1) + yStart;
-      final tileType = getTileType(x, y);
-      if (tileType == TileType.room) {
+    final walkways = <Map<String, int>>[];
+    for (var x = 0; x < columns; x++) {
+      for (var y = 0; y < rows; y++) {
+        if (getTileType(x, y) == TileType.walkway) {
+          walkways.add({'x': x, 'y': y});
+        }
+      }
+    }
+
+    // "doors" en el layout: enviamos los puntos de pasillo frente a cada
+    // hueco virtual, para que el renderer pueda marcar/highlight los puntos
+    // de acceso. El campo 'isDoorway' permite distinguirlos en el HTML 3D.
+    final doorways = <Map<String, dynamic>>[];
+    for (final entry in _doorConnections.entries) {
+      for (final p in entry.value) {
+        doorways.add({
+          'x': p.x,
+          'y': p.y,
+          'roomId': entry.key,
+          'isDoorway': true,
+        });
+      }
+    }
+
+    final characterStartPositionsByLayout = <String, Map<String, int>>{};
+    for (final entry in characterStartPositions.entries) {
+      characterStartPositionsByLayout[entry.key] = {
+        'x': entry.value.x,
+        'y': entry.value.y,
+      };
+    }
+
+    return {
+      'columns': columns,
+      'rows': rows,
+      'rooms': rooms,
+      'doors': doorways,
+      'walls': walls,
+      'walkways': walkways,
+      'inaccessibleZones': _inaccessibleZones
+          .map(
+            (zone) => {
+              'x0': zone.x0,
+              'x1': zone.x1,
+              'y0': zone.y0,
+              'y1': zone.y1,
+            },
+          )
+          .toList(growable: false),
+      'characterStartPositions': characterStartPositionsByLayout,
+    };
+  }
+
+  Position? getRoomCenterPosition(String roomId) {
+    final bounds = _rooms[roomId];
+    if (bounds == null) return null;
+
+    final midpointX = (bounds.x0 + bounds.x1) / 2;
+    final midpointY = (bounds.y0 + bounds.y1) / 2;
+    double bestDistance = double.infinity;
+    int bestX = (bounds.x0 + bounds.x1) ~/ 2;
+    int bestY = (bounds.y0 + bounds.y1) ~/ 2;
+
+    for (var x = bounds.x0; x <= bounds.x1; x++) {
+      for (var y = bounds.y0; y <= bounds.y1; y++) {
+        if (getTileType(x, y) != TileType.room) continue;
+
+        final distance = (x - midpointX) * (x - midpointX) +
+            (y - midpointY) * (y - midpointY);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestX = x;
+          bestY = y;
+        }
+      }
+    }
+
+    return Position(x: bestX, y: bestY, roomId: roomId);
+  }
+
+  bool _isWall(int x, int y) {
+    return _inaccessibleZones.any((zone) => zone.contains(x, y));
+  }
+
+  bool _isOuterBorder(int x, int y) {
+    return x == 0 || x == columns - 1 || y == 0 || y == rows - 1;
+  }
+
+  bool _isEdgeExit(int x, int y) {
+    return _edgeExitPositions.any((position) =>
+        position.x == x && position.y == y);
+  }
+
+  /// Devuelve TODOS los puntos de PASILLO que son "puerta virtual" (frente al
+  /// hueco) para entrar/salir de habitaciones.
+  List<Position> getAllDoorways() {
+    final result = <Position>[];
+    for (final entry in _doorConnections.entries) {
+      result.addAll(entry.value);
+    }
+    return List<Position>.unmodifiable(result);
+  }
+
+  /// Devuelve los puntos de PASILLO (walkway) desde los que se puede entrar a
+  /// una habitación concreta. Son las casillas justo enfrente de sus huecos.
+  List<Position> getDoorsForRoom(String roomId) {
+    return List<Position>.unmodifiable(
+      _doorConnections[roomId] ?? const <Position>[],
+    );
+  }
+
+  Position? getRandomWalkablePositionInRoom(String roomId, Random random) {
+    final bounds = _rooms[roomId];
+    if (bounds == null) return null;
+
+    for (var i = 0; i < 50; i++) {
+      final x = random.nextInt(bounds.x1 - bounds.x0 + 1) + bounds.x0;
+      final y = random.nextInt(bounds.y1 - bounds.y0 + 1) + bounds.y0;
+      if (getTileType(x, y) == TileType.room) {
         return Position(x: x, y: y, roomId: roomId);
       }
-      // If we find a door position within the room bounds, skip it
-      // (though doors should be at the boundaries, not inside 6x6 rooms)
     }
 
-    // Fallback: return center of room if no walkable found after attempts
-    final xCenter = (xStart + xEnd) ~/ 2;
-    final yCenter = (yStart + yEnd) ~/ 2;
-    return Position(x: xCenter, y: yCenter, roomId: roomId);
+    return Position(
+      x: (bounds.x0 + bounds.x1) ~/ 2,
+      y: (bounds.y0 + bounds.y1) ~/ 2,
+      roomId: roomId,
+    );
   }
+}
 
-  bool _isAdjacentToRoom(Position door, String roomId) {
-    const adjacentOffsets = [
-      [0, 1], [0, -1], [1, 0], [-1, 0],
-    ];
-    for (final offset in adjacentOffsets) {
-      final nx = door.x + offset[0];
-      final ny = door.y + offset[1];
-      if (nx >= 0 && nx < columns && ny >= 0 && ny < rows) {
-        if (getRoomIdAt(nx, ny) == roomId) return true;
-      }
-    }
-    return false;
+class _Bounds {
+  final int x0;
+  final int x1;
+  final int y0;
+  final int y1;
+
+  const _Bounds(this.x0, this.x1, this.y0, this.y1);
+
+  bool contains(int x, int y) {
+    return x >= x0 && x <= x1 && y >= y0 && y <= y1;
   }
 }

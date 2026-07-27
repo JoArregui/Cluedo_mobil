@@ -1,0 +1,8 @@
+{
+  "name": "CluedoEngineer",
+  "description": "Agente experto en Flutter para Cluedo Mobile",
+  "instructions": ".github/copilot-instructions.md",
+  "tools": [
+    { "type": "code_interpreter" }
+  ]
+}

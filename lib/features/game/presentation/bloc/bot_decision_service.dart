@@ -36,51 +36,47 @@ class BotDecisionService {
     }
     // Bot's turn after dice rolled (phase moving) -> decide move and suggestion (with delay)
     if (gameState.currentTurnIndex != 0 && gameState.phase == GamePhase.moving) {
-      final botMem = _botMemories[gameState.currentCharacter.card.id];
-      if (botMem != null && !_isBotDecisionScheduled) {
+      if (!_isBotDecisionScheduled) {
+        final playerId = gameState.currentCharacter.card.id;
+        var botMem = _botMemories[playerId];
+        botMem ??= BotMemory(botPlayerId: playerId);
+        if (_botMemories[playerId] == null) {
+          _botMemories[playerId] = botMem;
+        }
         _isBotDecisionScheduled = true;
-        Future.delayed(const Duration(seconds: 15), () {
-          // Re-check that we are still in a bot turn and moving phase
-          final currentState = state; // capture from outer scope
-          if (currentState.gameState.currentTurnIndex != 0 &&
-              currentState.gameState.phase == GamePhase.moving) {
-            final mem = _botMemories[currentState.gameState.currentCharacter.card.id];
-            if (mem != null) {
-              try {
-                final result = _executeBotTurn.call(
-                  state: currentState.gameState,
-                  botMemory: mem,
-                );
-                final newPos = result['newPosition'] as Position;
-                final suggestion = result['suggestion'] as Map<String, dynamic>?;
-                // Always move (even if same position) to advance turn
-                addEvent(MoveCharacterEvent(
-                  x: newPos.x,
-                  y: newPos.y,
-                  roomId: newPos.roomId,
-                ));
-                if (suggestion != null && newPos.roomId != null) {
-                  _pendingBotSuggestion = {
-                    'suspect': suggestion['suspect'] as CharacterCard,
-                    'weapon': suggestion['weapon'] as WeaponCard,
-                    'room': suggestion['room'] as RoomCard,
-                  };
-                } else {
-                  _pendingBotSuggestion = null;
-                }
-              } catch (e) {
-                // If bot decision fails, clear pending suggestion and treat as no move
-                _pendingBotSuggestion = null;
-                // Still move to avoid getting stuck
-                addEvent(MoveCharacterEvent(
-                  x: currentState.gameState.currentCharacter.position.x,
-                  y: currentState.gameState.currentCharacter.position.y,
-                  roomId: currentState.gameState.currentCharacter.position.roomId,
-                ));
-              }
+        Future.delayed(const Duration(milliseconds: 1500), () {
+          final mem = _botMemories[playerId] ?? BotMemory(botPlayerId: playerId);
+          try {
+            final result = _executeBotTurn.call(
+              state: gameState,
+              botMemory: mem,
+            );
+            final newPos = result['newPosition'] as Position;
+            final suggestion = result['suggestion'] as Map<String, dynamic>?;
+            addEvent(MoveCharacterEvent(
+              x: newPos.x,
+              y: newPos.y,
+              roomId: newPos.roomId,
+            ));
+            if (suggestion != null && newPos.roomId != null) {
+              _pendingBotSuggestion = {
+                'suspect': suggestion['suspect'] as CharacterCard,
+                'weapon': suggestion['weapon'] as WeaponCard,
+                'room': suggestion['room'] as RoomCard,
+              };
+            } else {
+              _pendingBotSuggestion = null;
             }
+          } catch (e) {
+            _pendingBotSuggestion = null;
+            addEvent(MoveCharacterEvent(
+              x: gameState.currentCharacter.position.x,
+              y: gameState.currentCharacter.position.y,
+              roomId: gameState.currentCharacter.position.roomId,
+            ));
+          } finally {
+            _isBotDecisionScheduled = false;
           }
-          _isBotDecisionScheduled = false;
         });
         return true;
       }

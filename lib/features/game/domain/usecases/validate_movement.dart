@@ -1,6 +1,6 @@
+import '../entities/board_map.dart';
 import '../entities/position.dart';
 import '../entities/state_game.dart';
-import '../entities/board_map.dart';
 import '../entities/tile_type.dart';
 
 class ValidateMovement {
@@ -8,138 +8,140 @@ class ValidateMovement {
 
   const ValidateMovement({this.boardMap = const BoardMap()});
 
-  /// Determina si un movimiento desde la posición actual hasta el objetivo es legal
-  /// basándose en los dados y las restricciones del tablero.
-  bool call({
-    required ClueGameState gameState,
-    required Position target,
-  }) {
+  bool call({required ClueGameState gameState, required Position target}) {
     final start = gameState.currentCharacter.position;
     final maxSteps = gameState.currentDiceResult;
 
     if (maxSteps == null) return false;
-
-    // 1. Verificación básica de tipo de casilla destino
-    final targetTileType = boardMap.getTileType(target.x, target.y);
-    if (targetTileType == TileType.wall) return false;
-
-    // 2. No permitir quedarse en la misma casilla
-    if (start.x == target.x && start.y == target.y && start.roomId == target.roomId) {
+    if (!boardMap.isInsideGrid(start.x, start.y)) return false;
+    if (!boardMap.isInsideGrid(target.x, target.y)) return false;
+    if (target.roomId == null && !boardMap.isSelectableTile(target.x, target.y)) {
       return false;
     }
 
-    // 3. Lógica específica si el destino es una habitación (se requiere llegar a una puerta)
+    if (start.x == target.x &&
+        start.y == target.y &&
+        start.roomId == target.roomId) {
+      return false;
+    }
+
     if (target.roomId != null) {
       return _canEnterRoom(start, target, maxSteps, gameState);
     }
 
-    // 4. Lógica para movimiento por pasillos 
-    return _calculateShortestPath(start, target, maxSteps, gameState);
+    return _distanceToTile(start, target, maxSteps, gameState) != null;
   }
 
-  bool _calculateShortestPath(Position start, Position target, int maxSteps, ClueGameState gameState) {
-    final List<List<int>> directions = [
-      [0, 1], [0, -1], [1, 0], [-1, 0]
-    ];
-
-    final Set<String> visited = {'${start.x},${start.y}'};
-    final List<Map<String, dynamic>> queue = [
-      {'x': start.x, 'y': start.y, 'steps': 0}
-    ];
-
-    final Set<String> occupiedTiles = gameState.players
-        .where((p) => p.position.roomId == null)
-        .map((p) => '${p.position.x},${p.position.y}')
-        .toSet();
-
-    while (queue.isNotEmpty) {
-      final current = queue.removeAt(0);
-      final int cx = current['x'];
-      final int cy = current['y'];
-      final int steps = current['steps'];
-
-      if (cx == target.x && cy == target.y) {
-        return steps <= maxSteps;
-      }
-
-      if (steps >= maxSteps) continue;
-
-      for (var dir in directions) {
-        final nx = cx + dir[0];
-        final ny = cy + dir[1];
-        final key = '$nx,$ny';
-
-        if (nx >= 0 && nx < boardMap.columns && ny >= 0 && ny < boardMap.rows) {
-          final type = boardMap.getTileType(nx, ny);
-          
-          // No se puede atravesar paredes ni pasar por encima de casillas ocupadas por rivales en los pasillos
-          if (type != TileType.wall && type != TileType.room && !visited.contains(key) && !occupiedTiles.contains(key)) {
-            visited.add(key);
-            queue.add({'x': nx, 'y': ny, 'steps': steps + 1});
-          }
-        }
-      }
+  bool _canEnterRoom(
+    Position start,
+    Position target,
+    int maxSteps,
+    ClueGameState gameState,
+  ) {
+    if (boardMap.getRoomIdAt(target.x, target.y) != target.roomId) {
+      return false;
     }
 
-    return false;
-  }
-
-  bool _canEnterRoom(Position start, Position target, int maxSteps, ClueGameState gameState) {
     final doors = boardMap.getDoorsForRoom(target.roomId!);
-    
-    for (var door in doors) {
-      // Si ya estás en la puerta, puedes entrar
-      if (start.x == door.x && start.y == door.y) {
-        return true; 
+    if (doors.isEmpty) return false;
+
+    for (final door in doors) {
+      if (start.roomId == null && start.x == door.x && start.y == door.y) {
+        return maxSteps >= 1;
       }
 
-      // Si hay un camino desde la posición actual hasta una de las puertas de la sala
-      final stepsToDoor = _getDistanceToDoor(start, door, maxSteps, gameState);
-      // El "+1" representa el paso final para entrar a la habitación desde la puerta
-      if (stepsToDoor != -1 && (stepsToDoor + 1) <= maxSteps) {
-        return true; 
+      final stepsToDoor = _distanceToTile(start, door, maxSteps, gameState);
+      if (stepsToDoor != null && stepsToDoor + 1 <= maxSteps) {
+        return true;
       }
     }
 
     return false;
   }
 
-  int _getDistanceToDoor(Position start, Position door, int maxSteps, ClueGameState gameState) {
-    final List<List<int>> directions = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-    final Set<String> visited = {'${start.x},${start.y}'};
-    final List<Map<String, dynamic>> queue = [{'x': start.x, 'y': start.y, 'steps': 0}];
+  int? _distanceToTile(
+    Position start,
+    Position target,
+    int maxSteps,
+    ClueGameState gameState,
+  ) {
+    final targetType = boardMap.getTileType(target.x, target.y);
+    if (targetType == TileType.wall ||
+        (targetType == TileType.room && target.roomId == null)) {
+      return null;
+    }
 
-    final Set<String> occupiedTiles = gameState.players
+    final occupiedTiles = gameState.players
+        .where((p) => p != gameState.currentCharacter)
         .where((p) => p.position.roomId == null)
         .map((p) => '${p.position.x},${p.position.y}')
         .toSet();
 
+    if (occupiedTiles.contains('${target.x},${target.y}')) return null;
+
+    const directions = [
+      [0, 1],
+      [0, -1],
+      [1, 0],
+      [-1, 0],
+    ];
+    final visited = <String>{};
+    final queue = <_Node>[];
+
+    _seedQueueFromStart(start, visited, queue);
+
     while (queue.isNotEmpty) {
       final current = queue.removeAt(0);
-      final int cx = current['x'];
-      final int cy = current['y'];
-      final int steps = current['steps'];
-
-      if (cx == door.x && cy == door.y) {
-        return steps;
+      if (current.x == target.x && current.y == target.y) {
+        return current.steps <= maxSteps ? current.steps : null;
       }
+      if (current.steps >= maxSteps) continue;
 
-      if (steps >= maxSteps) continue;
-
-      for (var dir in directions) {
-        final nx = cx + dir[0];
-        final ny = cy + dir[1];
+      for (final direction in directions) {
+        final nx = current.x + direction[0];
+        final ny = current.y + direction[1];
         final key = '$nx,$ny';
 
-        if (nx >= 0 && nx < boardMap.columns && ny >= 0 && ny < boardMap.rows) {
-          final type = boardMap.getTileType(nx, ny);
-          if (type != TileType.wall && type != TileType.room && !visited.contains(key) && !occupiedTiles.contains(key)) {
-            visited.add(key);
-            queue.add({'x': nx, 'y': ny, 'steps': steps + 1});
-          }
+        if (!boardMap.isInsideGrid(nx, ny) || visited.contains(key)) {
+          continue;
         }
+
+        final type = boardMap.getTileType(nx, ny);
+        if (type == TileType.wall || type == TileType.room) continue;
+        if (occupiedTiles.contains(key)) continue;
+
+        visited.add(key);
+        queue.add(_Node(nx, ny, current.steps + 1));
       }
     }
-    return -1;
+
+    return null;
   }
+
+  void _seedQueueFromStart(
+    Position start,
+    Set<String> visited,
+    List<_Node> queue,
+  ) {
+    if (start.roomId == null) {
+      visited.add('${start.x},${start.y}');
+      queue.add(_Node(start.x, start.y, 0));
+      return;
+    }
+
+    for (final door in boardMap.getDoorsForRoom(start.roomId!)) {
+      final key = '${door.x},${door.y}';
+      if (visited.add(key)) {
+        queue.add(_Node(door.x, door.y, 1));
+      }
+    }
+  }
+}
+
+class _Node {
+  final int x;
+  final int y;
+  final int steps;
+
+  const _Node(this.x, this.y, this.steps);
 }

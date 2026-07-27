@@ -34,12 +34,12 @@ class ClueDeck {
 
   static Position getInitialPosition(String characterId) {
     switch (characterId) {
-      case 'scarlet': return const Position(x: 16, y: 0); // Cerca del Vestíbulo
-      case 'mustard': return const Position(x: 23, y: 14); // Cerca del Comedor
-      case 'white': return const Position(x: 9, y: 24); // Cerca de la Cocina
-      case 'green': return const Position(x: 14, y: 24); // Cerca del Conservatorio
-      case 'peacock': return const Position(x: 0, y: 18); // Cerca del Conservatorio
-      case 'plum': return const Position(x: 0, y: 5); // Cerca del Estudio
+      case 'scarlet': return const Position(x: 16, y: 0);
+      case 'mustard': return const Position(x: 23, y: 7);
+      case 'white': return const Position(x: 23, y: 15);
+      case 'green': return const Position(x: 9, y: 24);
+      case 'peacock': return const Position(x: 0, y: 16);
+      case 'plum': return const Position(x: 0, y: 5);
       default: return const Position(x: 0, y: 0);
     }
   }

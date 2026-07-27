@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../domain/entities/card.dart';
 import '../../domain/entities/state_game.dart';
 import '../bloc/game_bloc.dart';
 import '../widgets/board_3d_widget.dart';
@@ -48,6 +49,7 @@ class _GameBoardPageState extends State<GameBoardPage> {
           if (state is GamePlayReady) {
             final gameState = state.gameState;
             final roomNarrative = gameState.currentRoomForNarrative;
+            final myHand = _getHumanHand(gameState);
 
             return SafeArea(
               child: Column(
@@ -60,7 +62,7 @@ class _GameBoardPageState extends State<GameBoardPage> {
                       context.read<GameBloc>().add(const PassTurnEvent());
                     },
                   ),
-                  _buildHandView(gameState.currentCharacter.hand),
+                  _buildHandView(myHand),
                   Expanded(
                     child: Stack(
                       children: [
@@ -96,7 +98,16 @@ class _GameBoardPageState extends State<GameBoardPage> {
     );
   }
 
-  Widget _buildHandView(List<dynamic> hand) {
+  List<ClueCard> _getHumanHand(ClueGameState gameState) {
+    return gameState.players
+        .firstWhere(
+          (player) => player.card.id == widget.selectedCharacterId,
+          orElse: () => gameState.players.first,
+        )
+        .hand;
+  }
+
+  Widget _buildHandView(List<ClueCard> hand) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: SizedBox(

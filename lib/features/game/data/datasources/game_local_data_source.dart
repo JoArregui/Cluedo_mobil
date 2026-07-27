@@ -16,7 +16,7 @@ class GameLocalDataSourceImpl implements GameLocalDataSource {
       // Sospechosos — hex_color requerido por CharacterCard
       {'id': 'scarlett',  'name_es': 'Scarlett',  'name_en': 'Miss Scarlett', 'type': 'character', 'hex_color': '#E63946'},
       {'id': 'mustard',   'name_es': 'Mustard',  'name_en': 'Colonel Mustard', 'type': 'character', 'hex_color': '#FFB703'},
-      {'id': 'orchid',    'name_es': 'Orchid',  'name_en': 'Dr Orchid', 'type': 'character', 'hex_color': '#9B5DE5'},
+      {'id': 'white',    'name_es': 'White',  'name_en': 'Dr White', 'type': 'character', 'hex_color': '#9B5DE5'},
       {'id': 'green',     'name_es': 'Green',     'name_en': 'Reverend Green', 'type': 'character', 'hex_color': '#2A9D8F'},
       {'id': 'peacock',   'name_es': 'Peacock',   'name_en': 'Mrs Peacock', 'type': 'character', 'hex_color': '#457B9D'},
       {'id': 'plum',      'name_es': 'Plum',      'name_en': 'Prof. Plum', 'type': 'character', 'hex_color': '#6A0572'},

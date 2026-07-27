@@ -22,7 +22,11 @@ class ControlPanelWidget extends StatelessWidget {
         color: Color(0xFF1C1F26),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
         boxShadow: [
-          BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, -2)),
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 10,
+            offset: Offset(0, -2),
+          ),
         ],
       ),
       child: Row(
@@ -40,10 +44,7 @@ class ControlPanelWidget extends StatelessWidget {
                 _ActionButton(
                   icon: Icons.gavel,
                   label: "Acusar",
-                  enabled: isMyTurn &&
-                      (phase == GamePhase.rolling ||
-                          phase == GamePhase.moving ||
-                          phase == GamePhase.suggesting),
+                  enabled: isMyTurn && phase == GamePhase.suggesting,
                   onPressed: () => _handleAccusation(context),
                 ),
                 _ActionButton(
@@ -96,9 +97,9 @@ class ControlPanelWidget extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
 
     context.read<GameBloc>().add(const EndGameEvent());
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => const MainMenuPage()),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => const MainMenuPage()));
   }
 
   Future<void> _handleSuggestion(BuildContext context) async {
@@ -116,7 +117,13 @@ class ControlPanelWidget extends StatelessWidget {
   }
 
   Future<void> _handleAccusation(BuildContext context) async {
-    final suspect = await _pickCard<CharacterCard>(context, 'Acusar: Sospechoso');
+    final currentRoomId = state.gameState.currentCharacter.position.roomId;
+    if (currentRoomId == null) return;
+
+    final suspect = await _pickCard<CharacterCard>(
+      context,
+      'Acusar: Sospechoso',
+    );
     if (suspect == null || !context.mounted) return;
     final weapon = await _pickCard<WeaponCard>(context, 'Acusar: Arma');
     if (weapon == null || !context.mounted) return;
@@ -132,9 +139,16 @@ class ControlPanelWidget extends StatelessWidget {
     BuildContext context,
     String title,
   ) async {
+    final myHand = state.gameState.players
+        .firstWhere(
+          (player) => !player.isBot,
+          orElse: () => state.gameState.players.first,
+        )
+        .hand;
+
     final selected = await showCardSelectionDialog(
       context: context,
-      myHand: state.gameState.currentCharacter.hand,
+      myHand: myHand,
       allOptions: state.gameState.totalDeck.whereType<T>().toList(),
       title: title,
     );

@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 
@@ -25,24 +26,24 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
   final SuggestionService _suggestionService;
   final BotDecisionService _botDecisionService;
 
-  // Character IDs in clockwise order starting from Miss Scarlett
+  // Orden clásico del Cluedo original: Miss Scarlett empieza siempre
   static const List<String> _characterClockwiseOrder = [
-    'scarlett',   // Miss Scarlett
-    'green',      // Reverend Green
-    'peacock',    // Mrs Peacock
-    'plum',       // Prof Plum
-    'orchid',     // Dr Orchid
-    'mustard',    // Colonel Mustard
+    'scarlett', // Miss Scarlett (siempre empieza)
+    'mustard', // Colonel Mustard
+    'white', // Mrs. / Dr. White
+    'green', // Reverend Green
+    'peacock', // Mrs. Peacock
+    'plum', // Professor Plum
   ];
 
   GameBloc({
     required this.gameRepository,
     required ExecuteBotTurn executeBotTurn,
     required BoardMap boardMap,
-  })  : _movementService = MovementService(boardMap: boardMap),
-        _suggestionService = SuggestionService(),
-        _botDecisionService = BotDecisionService(executeBotTurn: executeBotTurn),
-        super(GameInitial()) {
+  }) : _movementService = MovementService(boardMap: boardMap),
+       _suggestionService = SuggestionService(),
+       _botDecisionService = BotDecisionService(executeBotTurn: executeBotTurn),
+       super(GameInitial()) {
     on<StartNewGameEvent>(_onStartNewGame);
     on<RollDiceEvent>(_onRollDice);
     on<MoveCharacterEvent>(_onMoveCharacter);
@@ -71,13 +72,18 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     emit(GameLoading());
     await Future.delayed(Duration.zero);
     try {
-      print('_onStartNewGame: calling initializeLocalGame with players=${event.numberOfPlayers}, selected=${event.selectedCharacterId}');
-      // Obtener estado inicial del repositorio (incluye posiciones de armas, mazo de pistas, etc.)
-      final ClueGameState initialState = await gameRepository.initializeLocalGame(
-        numberOfPlayers: event.numberOfPlayers,
-        selectedCharacterId: event.selectedCharacterId,
+      print(
+        '_onStartNewGame: calling initializeLocalGame with players=${event.numberOfPlayers}, selected=${event.selectedCharacterId}',
       );
-      print('_onStartNewGame: initialState obtained, players=${initialState.players.length}');
+      // Obtener estado inicial del repositorio (incluye posiciones de armas, mazo de pistas, etc.)
+      final ClueGameState initialState = await gameRepository
+          .initializeLocalGame(
+            numberOfPlayers: event.numberOfPlayers,
+            selectedCharacterId: event.selectedCharacterId,
+          );
+      print(
+        '_onStartNewGame: initialState obtained, players=${initialState.players.length}',
+      );
 
       // Obtener todos los caracteres de sospecha (6 en total)
       final List<CharacterCard> allSuspects = initialState.totalDeck
@@ -89,95 +95,66 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       assert(allSuspects.length == 6, 'Se esperaban 6 personajes de sospecha');
 
       // Identificar el personaje secreto (del sobre)
-      final CharacterCard secretCharacter = initialState.solution.character;
+      final boardMap = initialState.boardMap;
 
-      // Crear posiciones iniciales para las seis fichas (espacios nombrados alrededor del tablero)
-      final List<Position> startPositions = [
-        const Position(x: 1, y: 1),   // cerca de esquina superior izquierda
-        const Position(x: 1, y: 22),  // cerca de esquina inferior izquierda
-        const Position(x: 22, y: 1),  // cerca de esquina superior derecha
-        const Position(x: 22, y: 22), // cerca de esquina inferior derecha
-        const Position(x: 11, y: 0),  // medio superior
-        const Position(x: 11, y: 24), // medio inferior
+      final orderedSuspects = [
+        allSuspects.firstWhere((c) => c.id == event.selectedCharacterId),
+        ..._characterClockwiseOrder
+            .where((id) => id != event.selectedCharacterId)
+            .map((id) => allSuspects.firstWhere((c) => c.id == id)),
       ];
-      startPositions.shuffle(_random);
 
-      // Crear los seis personajes de sospecha (siempre se muestran todas las fichas en el tablero)
-      final List<PlayerCharacter> suspects = <PlayerCharacter>[];
-
-      // Asignar posición al jugador humano
-      final CharacterCard humanCharacter = CharacterCard(
-        id: event.selectedCharacterId,
-        nameEs: allSuspects.firstWhere((c) => c.id == event.selectedCharacterId).nameEs,
-        nameEn: allSuspects.firstWhere((c) => c.id == event.selectedCharacterId).nameEn,
-        hexColor: allSuspects.firstWhere((c) => c.id == event.selectedCharacterId).hexColor,
-      );
-
-      suspects.add(
-        PlayerCharacter(
-          card: humanCharacter,
-          position: startPositions[0],
-          hand: [], // Se llenará después
-          isBot: false,
-          isEliminated: false, // Jugador humano activo
-        ),
-      );
-
-      // Preparar lista de sospechosos disponibles para bots (excluyendo secreto y humano)
-      final List<CharacterCard> availableForBots = allSuspects
-          .where((c) => c.id != secretCharacter.id && c.id != event.selectedCharacterId)
-          .toList();
-
-      // Asignar posiciones y personajes a los bots (número de bots = event.numberOfPlayers - 1)
-      for (int i = 0; i < (event.numberOfPlayers - 1); i++) {
-        final CharacterCard botCharacter = availableForBots[i];
-        suspects.add(
-          PlayerCharacter(
-            card: botCharacter,
-            position: startPositions[i + 1],
-            hand: [], // Se llenará después
-            isBot: true,
-            isEliminated: false, // Bot activo
-          ),
-        );
-      }
-
-      // Los sospechosos restantes (secreto y no asignados) van al tablero pero eliminados (no turnos)
-      final Set<String> assignedCharacterIds = {
-        event.selectedCharacterId,
-        ...availableForBots.take(event.numberOfPlayers - 1).map((c) => c.id)
-      };
-
-      for (final CharacterCard suspect in allSuspects) {
-        if (!assignedCharacterIds.contains(suspect.id)) {
-          suspects.add(
-            PlayerCharacter(
-              card: suspect,
-              position: startPositions[suspects.length], // Posiciones restantes
-              hand: [],
-              isBot: false, // No importa para sospechosos eliminados
-              isEliminated: true, // No tiene turno
+      final boardLayout = boardMap.getBoardLayout();
+      final parsedStartPositions = Map<String, Position>.fromEntries(
+        (boardLayout['characterStartPositions'] as Map).entries.map((entry) {
+          final position = entry.value as Map;
+          return MapEntry(
+            entry.key.toString(),
+            Position(
+              x: position['x'] as int,
+              y: position['y'] as int,
             ),
           );
-        }
-      }
+        }),
+      );
 
-      // Ahora tenemos exactamente 6 sospechosos en la lista 'suspects'
-      assert(suspects.length == 6, 'Se esperaban 6 personajes de sospecha en total');
+      // Crear los seis personajes de sospecha (siempre se muestran todas las fichas en el tablero)
+      final List<PlayerCharacter> suspects = orderedSuspects
+          .map(
+            (suspect) => PlayerCharacter(
+              card: suspect,
+              position: parsedStartPositions[suspect.id] ??
+                  boardMap.getStartPositionForCharacter(suspect.id),
+              hand: [],
+              isBot: suspect.id != event.selectedCharacterId,
+              isEliminated: false,
+            ),
+          )
+          .toList();
 
-      // Barajar las cartas restantes de personajes, armas y habitaciones para repartir
-      // Solo repartimos a los jugadores activos (no eliminados)
-      final List<PlayerCharacter> activePlayers = suspects.where((p) => !p.isEliminated).toList();
+      final List<PlayerCharacter> activePlayers = suspects
+          .where((p) => !p.isEliminated)
+          .toList();
       final List<CharacterCard> remainingCharacters = [
-        ...activePlayers.map((p) => p.card), // Estos ya tienen sus cartas de personaje asignadas como fichas
+        ...activePlayers.map(
+          (p) => p.card,
+        ), // Estos ya tienen sus cartas de personaje asignadas como fichas
       ];
 
       // Añadir armas y habitaciones excluyendo la solución
       final List<ClueCard> remainingWeapons = initialState.totalDeck
-          .where((c) => c.type == CardType.weapon && c.id != initialState.solution.weapon.id)
+          .where(
+            (c) =>
+                c.type == CardType.weapon &&
+                c.id != initialState.solution.weapon.id,
+          )
           .toList();
       final List<ClueCard> remainingRooms = initialState.totalDeck
-          .where((c) => c.type == CardType.room && c.id != initialState.solution.room.id)
+          .where(
+            (c) =>
+                c.type == CardType.room &&
+                c.id != initialState.solution.room.id,
+          )
           .toList();
 
       final List<ClueCard> remainingCards = [
@@ -238,7 +215,8 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       emit(
         GamePlayReady(
           gameState: gameState,
-          notificationMessage: "¡La mansión Tudor ha sido cerrada! Investiga las habitaciones.",
+          notificationMessage:
+              "¡La mansión Tudor ha sido cerrada! Investiga las habitaciones.",
         ),
       );
       print('_onStartNewGame: Emitted GamePlayReady');
@@ -257,52 +235,21 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
 
       final random = Random();
 
-      // Roll special dice: each die shows 1-5 or a magnifying glass (lupa)
-      // Lupa counts as 1 for movement and allows drawing a clue card
-      final int die1 = random.nextInt(6); // 0-5, where 5 represents lupa
-      final int die2 = random.nextInt(6); // 0-5, where 5 represents lupa
+      // Dados clásicos del Cluedo: 2 dados de 6 caras (valores 1-6)
+      final int die1 = random.nextInt(6) + 1;
+      final int die2 = random.nextInt(6) + 1;
 
-      final bool isDie1Lupa = die1 == 5;
-      final bool isDie2Lupa = die2 == 5;
+      final int movementTotal = die1 + die2;
 
-      final int die1Value = isDie1Lupa ? 1 : die1 + 1; // 0-4 -> 1-5, 5 (lupa) -> 1
-      final int die2Value = isDie2Lupa ? 1 : die2 + 1; // 0-4 -> 1-5, 5 (lupa) -> 1
-
-      final int movementTotal = die1Value + die2Value;
-      final int lupaCount = (isDie1Lupa ? 1 : 0) + (isDie2Lupa ? 1 : 0);
-
-      // Handle clue cards drawn from lupa rolls
-      List<ClueCard> updatedClueDeck = List.from(currentState.clueDeck);
-      String clueNotification = "";
-
-      for (int i = 0; i < lupaCount; i++) {
-        if (updatedClueDeck.isNotEmpty) {
-          // Draw the top card from the clue deck
-          final ClueCard drawnCard = updatedClueDeck.removeAt(0);
-          // In a real implementation, the card would be read and its effect applied
-          // For now, we'll just note that a clue card was drawn
-          clueNotification = "Has sacado una carta de pista: ${drawnCard.nameEn}. ";
-          // Place the used clue card at the bottom of the deck
-          updatedClueDeck.add(drawnCard);
-        } else {
-          clueNotification = "No hay más cartas de pista en el mazo. ";
-          break;
-        }
-      }
-
-      final String baseMessage = "Has obtenido un $movementTotal en los dados. ";
-      final String lupaMessage = lupaCount > 0
-          ? "$lupaCount icono${lupaCount == 1 ? '' : 's'} de lupa. $clueNotification"
-          : "";
-      final String notificationMessage = baseMessage + lupaMessage.trim();
+      final String notificationMessage =
+          "Has obtenido un $movementTotal en los dados ($die1 + $die2).";
 
       emit(
         GamePlayReady(
           gameState: currentState.copyWith(
-            lastDiceRoll: [die1Value, die2Value],
+            lastDiceRoll: [die1, die2],
             currentDiceResult: movementTotal,
             phase: GamePhase.moving,
-            clueDeck: updatedClueDeck,
           ),
           notificationMessage: notificationMessage,
         ),
@@ -320,24 +267,38 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
 
       final movingPlayer = updatedPlayers[index];
       final startPosition = movingPlayer.position;
-      final endPosition = Position(x: event.x, y: event.y, roomId: event.roomId);
+      final endPosition = Position(
+        x: event.x,
+        y: event.y,
+        roomId: event.roomId,
+      );
 
       // Determinar el número máximo de pasos permitido
       // Si estamos moviéndonos por dados, el máximo es el resultado del dado
       // Si es otro tipo de movimiento (como pasadizo secreto manejado en otro evento), usar null
-      final int? maxSteps = currentState.currentDiceResult != null ? currentState.currentDiceResult : null;
+      final int? maxSteps = currentState.currentDiceResult;
 
-      final movementPath = _movementService.calculateMovementPath(startPosition, endPosition, currentState, maxSteps: maxSteps);
+      final movementPath = _movementService.calculateMovementPath(
+        startPosition,
+        endPosition,
+        currentState,
+        maxSteps: maxSteps,
+      );
 
-      final pathJson = movementPath.map((pos) => [pos.x.toDouble(), pos.y.toDouble()]).toList();
+      final pathJson = movementPath
+          .map((pos) => [pos.x.toDouble(), pos.y.toDouble()])
+          .toList();
 
       // Determinar la posición final válida (la última posición en el camino calculado)
-      final validEndPosition = movementPath.isNotEmpty ? movementPath.last : startPosition;
+      final validEndPosition = movementPath.isNotEmpty
+          ? movementPath.last
+          : startPosition;
 
       // Verificar si el movimiento realmente cambió la posición (evitar movimientos nulos que puedan causar bucles)
-      final bool positionChanged = !(validEndPosition.x == startPosition.x &&
-          validEndPosition.y == startPosition.y &&
-          validEndPosition.roomId == startPosition.roomId);
+      final bool positionChanged =
+          !(validEndPosition.x == startPosition.x &&
+              validEndPosition.y == startPosition.y &&
+              validEndPosition.roomId == startPosition.roomId);
 
       // Actualizar la posición del jugador a la posición válida calculada
       updatedPlayers[index] = updatedPlayers[index].copyWith(
@@ -345,20 +306,28 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       );
 
       final enHabitacion = validEndPosition.roomId != null;
-      final proximaFase = enHabitacion ? GamePhase.suggesting : GamePhase.rolling;
+      final proximaFase = enHabitacion
+          ? GamePhase.suggesting
+          : GamePhase.rolling;
       int siguienteTurno = currentState.currentTurnIndex;
 
       // Solo avanzar al siguiente turno si no estamos entrando a una habitación
       // O si entramos a una habitación pero el movimiento fue válido (aunque no cambiamos de posición físicamente)
       if (!enHabitacion) {
-        siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, updatedPlayers);
+        siguienteTurno = _calcularSiguienteTurnoValido(
+          currentState.currentTurnIndex,
+          updatedPlayers,
+        );
       }
       // Si estamos en una habitación pero no cambiamos de posición (por ejemplo, intentamos mover pero no pudimos),
       // todavía deberíamos permitir sugerir o pasar el turno según las reglas
       else if (!positionChanged) {
         // Intentamos entrar a una habitación pero no pudimos llegar a ninguna puerta válida
         // Tratamos esto como si no hubiéramos entrado a una habitación
-        siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, updatedPlayers);
+        siguienteTurno = _calcularSiguienteTurnoValido(
+          currentState.currentTurnIndex,
+          updatedPlayers,
+        );
       }
 
       emit(
@@ -367,13 +336,15 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             players: updatedPlayers,
             phase: proximaFase,
             currentTurnIndex: siguienteTurno,
-            currentDiceResult: enHabitacion && positionChanged ? currentState.currentDiceResult : null,
+            currentDiceResult: enHabitacion && positionChanged
+                ? currentState.currentDiceResult
+                : null,
           ),
           notificationMessage: enHabitacion && positionChanged
               ? "Has entrado a la sala. Puedes formular una hipótesis o pasar."
               : !positionChanged && enHabitacion
-                  ? "No puedes llegar a esa habitación con ese lanzamiento. Turno perdido."
-                  : "Movimiento finalizado. Turno del siguiente detective.",
+              ? "No puedes llegar a esa habitación con ese lanzamiento. Turno perdido."
+              : "Movimiento finalizado. Turno del siguiente detective.",
           animationPath: {
             'playerId': movingPlayer.card.id,
             'path': pathJson,
@@ -384,7 +355,10 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     }
   }
 
-  void _onUseSecretPassage(UseSecretPassageEvent event, Emitter<GameBlocState> emit) {
+  void _onUseSecretPassage(
+    UseSecretPassageEvent event,
+    Emitter<GameBlocState> emit,
+  ) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.rolling) return;
@@ -403,15 +377,14 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
       final destination = secretPassages[roomId];
       if (destination == null) return;
 
+      final Position? destCenter = currentState.boardMap.getRoomCenterPosition(destination);
+      if (destCenter == null) return;
+
       final updatedPlayers = List<PlayerCharacter>.from(currentState.players);
       final int index = currentState.currentTurnIndex;
 
       updatedPlayers[index] = updatedPlayers[index].copyWith(
-        position: Position(
-          x: player.position.x,
-          y: player.position.y,
-          roomId: destination,
-        ),
+        position: destCenter,
       );
 
       emit(
@@ -422,13 +395,17 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
             currentTurnIndex: currentState.currentTurnIndex,
             currentDiceResult: null,
           ),
-          notificationMessage: "Has utilizado el pasaje secreto para moverte a la $destination.",
+          notificationMessage:
+              "Has utilizado el pasaje secreto para moverte a la $destination.",
         ),
       );
     }
   }
 
-  void _onMakeSuggestion(MakeSuggestionEvent event, Emitter<GameBlocState> emit) {
+  void _onMakeSuggestion(
+    MakeSuggestionEvent event,
+    Emitter<GameBlocState> emit,
+  ) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.suggesting) return;
@@ -442,7 +419,10 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     }
   }
 
-  void _onRefuteSuggestion(RefuteSuggestionEvent event, Emitter<GameBlocState> emit) {
+  void _onRefuteSuggestion(
+    RefuteSuggestionEvent event,
+    Emitter<GameBlocState> emit,
+  ) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       if (currentState.phase != GamePhase.refuting) return;
@@ -461,15 +441,21 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     }
   }
 
-  void _onMakeAccusation(MakeAccusationEvent event, Emitter<GameBlocState> emit) {
+  void _onMakeAccusation(
+    MakeAccusationEvent event,
+    Emitter<GameBlocState> emit,
+  ) {
     if (state is GamePlayReady) {
       final currentState = (state as GamePlayReady).gameState;
       // Check if player is in a room (required to make an accusation)
       if (currentState.currentCharacter.position.roomId == null) {
-        emit(GamePlayReady(
-          gameState: currentState,
-          notificationMessage: "Debes estar en una habitación para hacer una acusación.",
-        ));
+        emit(
+          GamePlayReady(
+            gameState: currentState,
+            notificationMessage:
+                "Debes estar en una habitación para hacer una acusación.",
+          ),
+        );
         return;
       }
 
@@ -487,7 +473,10 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     }
   }
 
-  int _calcularSiguienteTurnoValido(int turnoActual, List<PlayerCharacter> listaJugadores) {
+  int _calcularSiguienteTurnoValido(
+    int turnoActual,
+    List<PlayerCharacter> listaJugadores,
+  ) {
     // If no players or only one player, return current turn
     if (listaJugadores.length <= 1) {
       return turnoActual;
@@ -497,7 +486,9 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
     final String currentCharacterId = listaJugadores[turnoActual].card.id;
 
     // Find the position of the current character in the clockwise order
-    int currentOrderIndex = _characterClockwiseOrder.indexOf(currentCharacterId);
+    int currentOrderIndex = _characterClockwiseOrder.indexOf(
+      currentCharacterId,
+    );
     if (currentOrderIndex == -1) {
       // Character not found in our order list (should not happen with standard characters)
       // Fall back to original logic
@@ -513,7 +504,8 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
 
     // Search clockwise for the next non-eliminated player
     for (int i = 1; i <= _characterClockwiseOrder.length; i++) {
-      int nextOrderIndex = (currentOrderIndex + i) % _characterClockwiseOrder.length;
+      int nextOrderIndex =
+          (currentOrderIndex + i) % _characterClockwiseOrder.length;
       String nextCharacterId = _characterClockwiseOrder[nextOrderIndex];
 
       // Find this character in the player list
@@ -535,7 +527,10 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
 
       // Only allow passing when in suggesting phase (after entering a room)
       if (currentState.phase == GamePhase.suggesting) {
-        final siguienteTurno = _calcularSiguienteTurnoValido(currentState.currentTurnIndex, currentState.players);
+        final siguienteTurno = _calcularSiguienteTurnoValido(
+          currentState.currentTurnIndex,
+          currentState.players,
+        );
 
         emit(
           GamePlayReady(
@@ -544,7 +539,8 @@ class GameBloc extends Bloc<GameBlocEvent, GameBlocState> {
               currentTurnIndex: siguienteTurno,
               currentDiceResult: null,
             ),
-            notificationMessage: "Has pasado tu turno. Turno del siguiente detective.",
+            notificationMessage:
+                "Has pasado tu turno. Turno del siguiente detective.",
           ),
         );
       }

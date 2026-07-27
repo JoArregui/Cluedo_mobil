@@ -110,30 +110,133 @@ scene.add(mainLight);
 // ── Conversión de coordenadas ─────────────────────────────────────────────────
 // Grid Dart: x: 0..23 (24 cols), y: 0..24 (25 rows)
 // Centro del grid: (11.5, 12) → Three.js (0, 0)
-// threeX = tileX - 11.5
-// threeZ = tileY - 12
+const BOARD_COLUMNS = 24;
+const BOARD_ROWS = 25;
+const BOARD_HALF_X = (BOARD_COLUMNS - 1) / 2;
+const BOARD_HALF_Y = (BOARD_ROWS - 1) / 2;
+
 function tileToThree(tileX, tileY) {
-  return { x: tileX - 11.5, z: tileY - 12 };
+  return { x: tileX - BOARD_HALF_X, z: tileY - BOARD_HALF_Y };
+}
+
+function threeToTile(worldX, worldZ) {
+  return {
+    x: Math.round(worldX + BOARD_HALF_X),
+    y: Math.round(worldZ + BOARD_HALF_Y),
+  };
+}
+
+function isInsideGrid(tileX, tileY) {
+  return tileX >= 0 && tileX < BOARD_COLUMNS && tileY >= 0 && tileY < BOARD_ROWS;
 }
 
 function roomCenter(x0, x1, y0, y1) {
-  return tileToThree((x0 + x1) / 2, (y0 + y1) / 2);
+  const midpointX = (x0 + x1) / 2;
+  const midpointY = (y0 + y1) / 2;
+  let bestX = Math.round(midpointX);
+  let bestY = Math.round(midpointY);
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      const distance = (x - midpointX) ** 2 + (y - midpointY) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestX = x;
+        bestY = y;
+      }
+    }
+  }
+
+  return tileToThree(bestX, bestY);
 }
 
 // ── Definición de habitaciones (solo para posicionar tokens y highlights) ─────
-const ROOMS = [
-  { id: 'study',         x0: 1,  x1: 6,  y0: 1,  y1: 6  },
-  { id: 'hall',          x0: 9,  x1: 14, y0: 1,  y1: 6  },
-  { id: 'lounge',        x0: 17, x1: 22, y0: 1,  y1: 6  },
-  { id: 'library',       x0: 1,  x1: 6,  y0: 9,  y1: 14 },
-  { id: 'billiard_room', x0: 9,  x1: 14, y0: 9,  y1: 14 },
-  { id: 'dining_room',   x0: 17, x1: 22, y0: 9,  y1: 14 },
-  { id: 'conservatory',  x0: 1,  x1: 6,  y0: 17, y1: 22 },
-  { id: 'ballroom',      x0: 9,  x1: 14, y0: 17, y1: 22 },
-  { id: 'kitchen',       x0: 17, x1: 22, y0: 17, y1: 22 },
+let ROOMS = [
+  { id: 'study',         x0: 1,  x1: 5,  y0: 1,  y1: 4  },
+  { id: 'hall',          x0: 9,  x1: 13, y0: 1,  y1: 5  },
+  { id: 'lounge',        x0: 17, x1: 21, y0: 1,  y1: 5  },
+  { id: 'library',       x0: 1,  x1: 6,  y0: 7,  y1: 10 },
+  { id: 'dining_room',   x0: 16, x1: 22, y0: 8,  y1: 14 },
+  { id: 'billiard_room', x0: 1,  x1: 5,  y0: 12, y1: 16 },
+  { id: 'conservatory',  x0: 1,  x1: 5,  y0: 18, y1: 22 },
+  { id: 'ballroom',      x0: 8,  x1: 14, y0: 18, y1: 22 },
+  { id: 'kitchen',       x0: 17, x1: 21, y0: 18, y1: 22 },
 ];
 
-const ROOM_POSITIONS = {};
+let BLOCKED_ZONES = [
+  { x0: 9,  x1: 14, y0: 8,  y1: 14 },
+  { x0: 7,  x1: 8,  y0: 1,  y1: 3  },
+  { x0: 15, x1: 15, y0: 1,  y1: 4  },
+  { x0: 7,  x1: 8,  y0: 21, y1: 24 },
+  { x0: 16, x1: 16, y0: 22, y1: 24 },
+  { x0: 22, x1: 23, y0: 21, y1: 24 },
+];
+
+// Puertas: walkway que queda frente al hueco de cada habitación.
+// (Sincronizado con _doorConnections en board_map.dart)
+let DOORWAYS = [
+  { x: 6,  y: 4  }, // study
+  { x: 8,  y: 5  }, // hall
+  { x: 11, y: 6  }, // hall
+  { x: 16, y: 4  }, // lounge
+  { x: 19, y: 6  }, // lounge
+  { x: 7,  y: 8  }, // library
+  { x: 6,  y: 11 }, // library
+  { x: 15, y: 11 }, // dining_room
+  { x: 15, y: 13 }, // dining_room
+  { x: 6,  y: 13 }, // billiard_room
+  { x: 6,  y: 15 }, // billiard_room
+  { x: 6,  y: 19 }, // conservatory
+  { x: 6,  y: 21 }, // conservatory
+  { x: 8,  y: 17 }, // ballroom
+  { x: 14, y: 17 }, // ballroom
+  { x: 15, y: 15 }, // ballroom (puerta hacia dining)
+  { x: 16, y: 20 }, // kitchen
+  { x: 19, y: 17 }, // kitchen
+];
+
+function applyBoardLayout(layout) {
+  if (!layout) return;
+
+  const normalizedRooms = Array.isArray(layout.rooms)
+    ? layout.rooms.map(room => ({
+        id: room.id,
+        x0: room.x0 ?? 0,
+        x1: room.x1 ?? 0,
+        y0: room.y0 ?? 0,
+        y1: room.y1 ?? 0,
+      }))
+    : [];
+
+  const normalizedZones = Array.isArray(layout.inaccessibleZones)
+    ? layout.inaccessibleZones.map(zone => ({
+        x0: zone.x0 ?? 0,
+        x1: zone.x1 ?? 0,
+        y0: zone.y0 ?? 0,
+        y1: zone.y1 ?? 0,
+      }))
+    : [];
+
+  ROOMS = normalizedRooms.length > 0 ? normalizedRooms : ROOMS;
+  BLOCKED_ZONES = normalizedZones.length > 0 ? normalizedZones : BLOCKED_ZONES;
+
+  ROOM_POSITIONS = {};
+  ROOMS.forEach(r => {
+    const c = roomCenter(r.x0, r.x1, r.y0, r.y1);
+    ROOM_POSITIONS[r.id] = [c.x, c.z];
+  });
+}
+
+function inBounds(tileX, tileY, bounds) {
+  return tileX >= bounds.x0 && tileX <= bounds.x1 && tileY >= bounds.y0 && tileY <= bounds.y1;
+}
+
+function isBlockedTile(tileX, tileY) {
+  return BLOCKED_ZONES.some(bounds => inBounds(tileX, tileY, bounds));
+}
+
+let ROOM_POSITIONS = {};
 ROOMS.forEach(r => {
   const c = roomCenter(r.x0, r.x1, r.y0, r.y1);
   ROOM_POSITIONS[r.id] = [c.x, c.z];
@@ -143,7 +246,7 @@ ROOMS.forEach(r => {
 function buildBoard() {
   // Suelo base oscuro
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(24, 25),
+    new THREE.PlaneGeometry(BOARD_COLUMNS, BOARD_ROWS),
     new THREE.MeshStandardMaterial({ color: 0x080810, roughness: 1.0 })
   );
   floor.rotation.x = -Math.PI / 2;
@@ -157,8 +260,29 @@ function buildBoard() {
     undefined,
     (err) => console.warn('board_texture.png no encontrado:', err)
   );
+  // FIX: el texture board_texture.png (1024x971) tiene un marco marrón decorativo
+  // alrededor del tablero Cluedo real. Si mapeamos el texture completo al
+  // PlaneGeometry(24, 25), las celdas lógicas se comprimen para cubrir ese marco
+  // y los tokens/highlights no caen sobre las casillas visibles.
+  // Remapeamos UVs para que SOLO la zona del tablero Cluedo (sin el marco marrón)
+  // se mapee al plane completo. Esto NO afecta a tileToThree/threeToTile
+  // (preserva la rotación de cámara) ni a la lógica de movimiento.
+  // IMPORTANTE: este ajuste NO depende del ángulo de cámara (rotación libre).
+  const TEX_W = 1024, TEX_H = 971;
+  // Bordes interiores del tablero Cluedo visibles dentro del texture
+  const TEX_BOARD_X0 = 42,  TEX_BOARD_X1 = 932;
+  const TEX_BOARD_Y0 = 33,  TEX_BOARD_Y1 = 890;
+  boardOverlayTex.repeat.set(
+    (TEX_BOARD_X1 - TEX_BOARD_X0) / TEX_W,
+    (TEX_BOARD_Y1 - TEX_BOARD_Y0) / TEX_H
+  );
+  boardOverlayTex.offset.set(
+    TEX_BOARD_X0 / TEX_W,
+    1 - TEX_BOARD_Y1 / TEX_H
+  );
+
   const boardOverlay = new THREE.Mesh(
-    new THREE.PlaneGeometry(24, 25),
+    new THREE.PlaneGeometry(BOARD_COLUMNS, BOARD_ROWS),
     new THREE.MeshStandardMaterial({
       map: boardOverlayTex,
       transparent: false,
@@ -173,7 +297,7 @@ function buildBoard() {
 
   // Borde exterior del tablero
   const border = new THREE.Mesh(
-    new THREE.BoxGeometry(25, 0.15, 26),
+    new THREE.BoxGeometry(BOARD_COLUMNS + 1, 0.15, BOARD_ROWS + 1),
     new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.8 })
   );
   border.position.y = -0.08;
@@ -225,10 +349,10 @@ function showValidTiles(tiles, validRoomIds) {
 
   tiles.forEach(tile => {
     const pos = tileToThree(tile.x, tile.y);
-    const mat = tile.type === 'door' ? MAT_DOOR : MAT_WALKWAY;
+    const isDoorway = tile.type === 'door' || tile.type === 'doorway';
+    const mat = isDoorway ? MAT_DOOR : MAT_WALKWAY;
     const mesh = new THREE.Mesh(TILE_GEO, mat);
     mesh.rotation.x = -Math.PI / 2;
-    // Elevamos un poco más para que floten sobre el tablero
     mesh.position.set(pos.x, 0.08, pos.z);
     highlightGroup.add(mesh);
   });
@@ -304,7 +428,7 @@ function syncPlayers(players) {
       tokenMeshes[player.id] = mesh;
     }
 
-    mesh.visible = !player.isEliminated;
+    mesh.visible = true;
 
     let targetPosition;
     if (player.roomId && ROOM_POSITIONS[player.roomId]) {
@@ -319,7 +443,13 @@ function syncPlayers(players) {
     }
 
     tokenTargets[player.id] = targetPosition;
-    if (!tokenAnimations[player.id] || !tokenAnimations[player.id].active) {
+
+    // FIX: si NO hay animación activa para este jugador, posicionamos
+    // inmediatamente en la nueva posición. Si SÍ hay animación activa,
+    // NO tocamos la posición aquí — la animación se encarga de moverla.
+    const anim = tokenAnimations[player.id];
+    const animActive = anim && anim.active;
+    if (!animActive) {
       mesh.position.copy(targetPosition);
     }
   });
@@ -348,10 +478,11 @@ function onPointerUp(event) {
   raycaster.ray.intersectPlane(plane, intersectPoint);
 
   if (intersectPoint) {
-    const tileX = Math.round(intersectPoint.x + 11.5);
-    const tileY = Math.round(intersectPoint.z + 12);
+    const tile = threeToTile(intersectPoint.x, intersectPoint.z);
+    const tileX = tile.x;
+    const tileY = tile.y;
 
-    if (tileX >= 0 && tileX < 24 && tileY >= 0 && tileY < 25) {
+    if (isInsideGrid(tileX, tileY) && !isBlockedTile(tileX, tileY)) {
       if (window.FlutterChannel) {
         window.FlutterChannel.postMessage(JSON.stringify({
           type: 'gridClick', x: tileX, y: tileY,
@@ -377,6 +508,17 @@ window.handleFlutterMessage = function(message) {
 function _startTokenAnimation(playerId, path, durationMs) {
   if (tokenAnimations[playerId] && tokenAnimations[playerId].active) {
     tokenAnimations[playerId].active = false;
+  }
+
+  // FIX: si el path tiene longitud 0 o 1 (origen = destino o inválido),
+  // no tiene sentido animar; saltamos al destino directamente.
+  if (!path || path.length <= 1) {
+    const mesh = tokenMeshes[playerId];
+    if (mesh && path && path.length === 1) {
+      const pos = tileToThree(path[0][0], path[0][1]);
+      mesh.position.set(pos.x, 0.5, pos.z);
+    }
+    return;
   }
 
   const threePath = path.map(point => {
@@ -736,7 +878,13 @@ function animate() {
     const segDur = anim.duration / (anim.path.length - 1);
     const si     = Math.min(Math.floor(elapsed / segDur), anim.path.length - 2);
     const sp     = Math.min((elapsed % segDur) / segDur, 1.0);
-    anim.mesh.position.copy(anim.path[si].clone().lerp(anim.path[si + 1], sp));
+    const a = anim.path[si];
+    const b = anim.path[si + 1];
+    if (a && b) {
+      anim.mesh.position.copy(a.clone().lerp(b, sp));
+    } else {
+      anim.mesh.position.copy(anim.path[anim.path.length - 1]);
+    }
   }
 
   // Pulso suave en la luz de cada token
@@ -763,6 +911,7 @@ function notifyReady() {
 window.updateGameState = function(jsonStr) {
   try {
     const state = JSON.parse(jsonStr);
+    if (state.boardLayout) applyBoardLayout(state.boardLayout);
     if (state.players) syncPlayers(state.players);
 
     // Highlights: si vienen tiles válidas mostrarlas, si no limpiar

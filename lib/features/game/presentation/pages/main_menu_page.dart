@@ -9,7 +9,7 @@ class MainMenuPage extends StatelessWidget {
     {'id': 'mustard', 'name': 'Mustard'},
     {'id': 'green', 'name': 'Green'},
     {'id': 'plum', 'name': 'Plum'},
-    {'id': 'orchid', 'name': 'Orchid'},
+    {'id': 'white', 'name': 'White'},
     {'id': 'peacock', 'name': 'Peacock'},
   ];
 

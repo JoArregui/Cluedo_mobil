@@ -1,73 +1,96 @@
 import 'package:cluedo_mobil/features/game/domain/entities/position.dart';
+
+import '../../domain/entities/board_map.dart';
 import '../../domain/entities/state_game.dart';
 import '../../domain/entities/tile_type.dart';
-import '../../domain/entities/board_map.dart';
 
-/// Servicio responsable de manejar la lógica de movimiento de los personajes en el tablero, incluyendo validación de movimientos y cálculo de caminos.
 class MovementService {
   final BoardMap _boardMap;
 
   MovementService({required BoardMap boardMap}) : _boardMap = boardMap;
 
-  List<Position> calculateMovementPath(Position start, Position end, ClueGameState gameState, {int? maxSteps}) {
-    // Si el destino es una habitación, necesitamos encontrar un camino hasta una puerta de esa habitación
-    final String? roomId = end.roomId;
-    if (roomId != null) {
-      // Obtener todas las puertas de la habitación destino
-      final List<Position> doors = _boardMap.getDoorsForRoom(roomId);
-
-      if (doors.isEmpty) {
-        // No hay puertas 
-        return [start, end];
-      }
-
-      // Encontrar el camino más corto hasta cualquiera de las puertas
-      List<Position>? bestPathToDoor;
-      int bestPathLength = 999;
-
-      for (final door in doors) {
-        final pathToDoor = _findHallwayPath(start, door, gameState);
-        if (pathToDoor.length < bestPathLength) {
-          bestPathLength = pathToDoor.length;
-          bestPathToDoor = pathToDoor;
-        }
-      }
-
-      if (bestPathToDoor == null) {
-        // No se puede llegar a ninguna puerta
-        return [start, end]; // Esto será manejado como inválido en el Bloc
-      }
-
-      // El camino final es el camino hasta la puerta + la posición de la habitación
-      // Nota: La posición de la habitación tiene las mismas coordenadas x,y que la puerta, pero con roomId establecido
-      final entrancePosition = Position(x: bestPathToDoor.last.x, y: bestPathToDoor.last.y, roomId: roomId);
-      return [...bestPathToDoor, entrancePosition];
-    } else {
-      // Movimiento en pasillos
-      return _findHallwayPath(start, end, gameState, maxSteps: maxSteps);
+  List<Position> calculateMovementPath(
+    Position start,
+    Position end,
+    ClueGameState gameState, {
+    int? maxSteps,
+  }) {
+    if (!_boardMap.isInsideGrid(start.x, start.y) ||
+        !_boardMap.isInsideGrid(end.x, end.y)) {
+      return [start];
     }
+
+    if (end.roomId != null) {
+      return _pathToRoom(start, end, gameState, maxSteps: maxSteps);
+    }
+
+    return _findHallwayPath(start, end, gameState, maxSteps: maxSteps) ??
+        [start];
   }
 
-  List<Position> _findHallwayPath(Position start, Position end, ClueGameState gameState, {int? maxSteps}) {
+  List<Position> _pathToRoom(
+    Position start,
+    Position end,
+    ClueGameState gameState, {
+    int? maxSteps,
+  }) {
+    if (_boardMap.getRoomIdAt(end.x, end.y) != end.roomId) return [start];
+
+    List<Position>? bestPath;
+    for (final door in _boardMap.getDoorsForRoom(end.roomId!)) {
+      final path = _findHallwayPath(start, door, gameState, maxSteps: maxSteps);
+      if (path == null) continue;
+      if (maxSteps != null && path.length + 1 > maxSteps + 1) continue;
+      if (bestPath == null || path.length < bestPath.length) {
+        bestPath = path;
+      }
+    }
+
+    if (bestPath == null) return [start];
+
+    final roomCenter = _boardMap.getRoomCenterPosition(end.roomId!);
+    if (roomCenter == null) return [start];
+
+    final entrance = Position(
+      x: roomCenter.x,
+      y: roomCenter.y,
+      roomId: end.roomId,
+    );
+    return [...bestPath, entrance];
+  }
+
+  List<Position>? _findHallwayPath(
+    Position start,
+    Position end,
+    ClueGameState gameState, {
+    int? maxSteps,
+  }) {
+    final targetType = _boardMap.getTileType(end.x, end.y);
+    if (targetType == TileType.wall || targetType == TileType.room) {
+      return null;
+    }
+
+    final occupied = gameState.players
+        .where((p) => p != gameState.currentCharacter)
+        .where((p) => p.position.roomId == null)
+        .map((p) => '${p.position.x},${p.position.y}')
+        .toSet();
+
+    if (occupied.contains('${end.x},${end.y}')) return null;
+
     final queue = <List<Position>>[];
     final visited = <String>{};
-
-    queue.add([start]);
-    visited.add('${start.x},${start.y}');
+    _seedPaths(start, queue, visited);
 
     while (queue.isNotEmpty) {
       final path = queue.removeAt(0);
       final current = path.last;
 
-      // Si llegamos al destino, devolvemos el camino
       if (current.x == end.x && current.y == end.y) {
         return path;
       }
 
-      // Si tenemos un límite de pasos y lo superamos, no continuamos este camino
-      if (maxSteps != null && path.length - 1 >= maxSteps) {
-        continue;
-      }
+      if (maxSteps != null && path.length - 1 >= maxSteps) continue;
 
       final neighbors = [
         Position(x: current.x, y: current.y + 1),
@@ -77,45 +100,38 @@ class MovementService {
       ];
 
       for (final neighbor in neighbors) {
-        // Verificar límites del tablero (asumiendo 24x25 basado en el código existente)
-        if (neighbor.x < 0 || neighbor.x >= 24 || neighbor.y < 0 || neighbor.y >= 25) {
-          continue;
-        }
+        final key = '${neighbor.x},${neighbor.y}';
+        if (!_boardMap.isInsideGrid(neighbor.x, neighbor.y)) continue;
+        if (visited.contains(key)) continue;
 
         final tileType = _boardMap.getTileType(neighbor.x, neighbor.y);
-        if (tileType == TileType.wall || tileType == TileType.room) {
-          continue;
-        }
+        if (tileType == TileType.wall || tileType == TileType.room) continue;
+        if (occupied.contains(key)) continue;
 
-        // Verificar si el tile está ocupado por otro jugador (solo en pasillos, no en rooms)
-        // Nota: Como estamos calculando un camino en pasillos, ignoramos las positions con roomId != null
-        final isOccupied = gameState.players.any((p) =>
-          !p.isEliminated &&
-          p.position.roomId == null &&
-          p.position.x == neighbor.x &&
-          p.position.y == neighbor.y);
-        if (isOccupied) {
-          continue;
-        }
-
-        final key = '${neighbor.x},${neighbor.y}';
-        if (!visited.contains(key)) {
-          visited.add(key);
-          final newPath = [...path, neighbor];
-          queue.add(newPath);
-        }
+        visited.add(key);
+        queue.add([...path, neighbor]);
       }
     }
 
-    // Si no se encuentra un camino, devolvemos el camino más largo posible dentro del límite de pasos
-    // O simplemente [start, end] si no hay límite (aunque esto podría llevar a movimientos inválidos)
-    if (maxSteps != null) {
-      // Encontrar el nodo visitado más cercano al destino
-      // Por simplicidad, devolvemos [start, start] si no hay movimiento posible
-      return [start];
+    return null;
+  }
+
+  void _seedPaths(
+    Position start,
+    List<List<Position>> queue,
+    Set<String> visited,
+  ) {
+    if (start.roomId == null) {
+      visited.add('${start.x},${start.y}');
+      queue.add([start]);
+      return;
     }
 
-    // Si no hay límite de pasos, devolvemos camino directo (no debería pasar en juego válido)
-    return [start, end];
+    for (final door in _boardMap.getDoorsForRoom(start.roomId!)) {
+      final key = '${door.x},${door.y}';
+      if (visited.add(key)) {
+        queue.add([start, door]);
+      }
+    }
   }
 }

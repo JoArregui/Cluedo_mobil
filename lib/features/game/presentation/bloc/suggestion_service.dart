@@ -4,10 +4,13 @@ import '../../domain/entities/card.dart';
 import '../../domain/entities/character.dart';
 import 'game_bloc.dart';
 
-/// Servicio responsable de manejar la lógica de sugerencias, refutaciones y acusaciones.
+/// Servicio responsable de manejar la lógica de sugerencias, refutaciones y acusaciones
+/// según las reglas originales del Cluedo.
 class SuggestionService {
-  /// Procesa una sugerencia hecha por el jugador actual. Mueve las fichas de personaje y arma a la habitación actual
-  ///  y establece el estado para la fase de refutación.
+  /// Procesa una sugerencia hecha por el jugador actual.
+  /// - El personaje y el arma se mueven automáticamente a la habitación de la sugerencia.
+  /// - La habitación de la sugerencia es SIEMPRE la habitación donde se encuentra el jugador actual.
+  /// - La refutación comienza por el jugador siguiente en el orden de turnos.
   GamePlayReady makeSuggestion({
     required ClueGameState state,
     required CharacterCard suspect,
@@ -18,36 +21,31 @@ class SuggestionService {
       return GamePlayReady(gameState: state, notificationMessage: '');
     }
 
-    final roomCard = state.solution.room;
-    final List<ClueCard> sugerencia = [suspect, weapon, roomCard];
-    final primerRefutador = (state.currentTurnIndex + 1) % state.players.length;
+    final Position? roomCenter = state.boardMap.getRoomCenterPosition(currentRoomId);
 
-    // Mueve la ficha del personaje sospechoso a la habitación actual
+    final roomCard = state.boardMap.roomIds.contains(currentRoomId)
+        ? RoomCard(id: currentRoomId, nameEs: _roomNameEs(currentRoomId), nameEn: _roomNameEn(currentRoomId))
+        : state.solution.room;
+    final List<ClueCard> sugerencia = [suspect, weapon, roomCard];
+
+    // Regla Cluedo: refutación empieza por el jugador SIGUIENTE en la mesa (sentido horario),
+    // incluyéndose a sí mismo solo como último caso (cuando todos los demás han pasado).
+    int primerRefutador = (state.currentTurnIndex + 1) % state.players.length;
+
+    // Mueve la ficha del personaje sospechoso a la habitación actual (regla obligatoria).
     final List<PlayerCharacter> updatedPlayers = List<PlayerCharacter>.from(state.players);
     final int suspectIndex = updatedPlayers.indexWhere((p) => p.card.id == suspect.id);
-    if (suspectIndex != -1) {
-      final Position oldPos = updatedPlayers[suspectIndex].position;
+    if (suspectIndex != -1 && roomCenter != null) {
       updatedPlayers[suspectIndex] = updatedPlayers[suspectIndex].copyWith(
-        position: Position(
-          x: oldPos.x,
-          y: oldPos.y,
-          roomId: currentRoomId,
-        ),
+        position: roomCenter,
       );
     }
 
-    // Mover la ficha del arma a la habitación actual
+    // Mueve la ficha del arma a la habitación actual (regla obligatoria).
     final Map<String, Position> updatedWeaponPositions =
         Map<String, Position>.from(state.weaponPositions);
-    if (updatedWeaponPositions.containsKey(weapon.id)) {
-      final Position oldPos = updatedWeaponPositions[weapon.id]!;
-      updatedWeaponPositions[weapon.id] = Position(
-        x: oldPos.x,
-        y: oldPos.y,
-        roomId: currentRoomId,
-      );
-    } else {
-      updatedWeaponPositions[weapon.id] = const Position(x: 0, y: 0, roomId: null);
+    if (roomCenter != null) {
+      updatedWeaponPositions[weapon.id] = roomCenter;
     }
 
     final newState = state.copyWith(
@@ -56,16 +54,21 @@ class SuggestionService {
       phase: GamePhase.refuting,
       currentSuggestion: sugerencia,
       refutingPlayerIndex: primerRefutador,
+      currentDiceResult: null,
     );
 
     return GamePlayReady(
       gameState: newState,
       notificationMessage:
-          "${state.currentCharacter.card.nameEs} sospecha de ${suspect.nameEs} con el ${weapon.nameEs}.",
+          "${state.currentCharacter.card.nameEs} sospecha de ${suspect.nameEs} con el ${weapon.nameEs} en ${roomCard.nameEs}.",
     );
   }
 
-  /// Procesa una refutación a la sugerencia actual. El jugador que refuta debe mostrar una carta de su mano que coincida con la sugerencia.
+  /// Procesa una refutación.
+  /// Regla Cluedo: TODOS los jugadores (incluidos eliminados) deben intentar refutar en orden.
+  /// Si un jugador tiene al menos una carta de la sugerencia, DEBE mostrarla (solo una, a elegir).
+  /// Si no tiene ninguna, pasa al siguiente.
+  /// Si se llega de nuevo al jugador que hizo la sugerencia sin que nadie refute, la sugerencia no se ha podido refutar.
   (GamePlayReady, ClueCard?) refuteSuggestion({
     required ClueGameState state,
     required ClueCard? matchingCard,
@@ -77,9 +80,8 @@ class SuggestionService {
 
     final refutadorActualIdx = state.refutingPlayerIndex!;
 
-    // Si se proporciona una tarjeta específica para mostrar 
+    // Caso 1: se ha especificado una carta concreta para mostrar (jugador humano).
     if (matchingCard != null) {
-      // Verificar que el jugador actual tenga esta carta
       final tieneCarta = state.players[refutadorActualIdx].hand
           .any((c) => c.id == matchingCard.id);
 
@@ -96,39 +98,22 @@ class SuggestionService {
           GamePlayReady(
             gameState: newState,
             notificationMessage:
-                "${state.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
+                "${state.players[refutadorActualIdx].card.nameEs} mostró una prueba. Hipótesis refutada.",
           ),
           matchingCard
         );
-      } else {
-        // El jugador dice que tiene la carta pero no la tiene - esto no debería pasar
-        // Tratar como si no tuviera cartas para mostrar
-        final siguienteRefutador = (refutadorActualIdx + 1) % state.players.length;
-        final newState = state.copyWith(refutingPlayerIndex: siguienteRefutador);
-        return (
-          GamePlayReady(
-            gameState: newState,
-            notificationMessage:
-                "${state.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
-          ),
-          null
-        );
       }
+      // Si dice que tiene la carta pero no la tiene, tratar como "no refuta".
     }
 
-    // Lógica normal: el jugador debe mostrar una carta de su mano que coincida con la sugerencia
+    // Caso 2: detección automática (bots o humano sin especificar).
     final playerHand = state.players[refutadorActualIdx].hand;
     final suggestedCards = state.currentSuggestion!;
-
-    // Encontrar todas las cartas en la mano del jugador que coinciden con la sugerencia
     final matchingCards = playerHand.where((carta) =>
         suggestedCards.any((sugerida) => sugerida.id == carta.id)).toList();
 
     if (matchingCards.isNotEmpty) {
-      // El jugador tiene una o más cartas que coinciden - puede elegir cuál mostrar
-      // Por ahora, elegimos la primera (en una implementación real, esto vendría de la UI)
       final cardToShow = matchingCards.first;
-
       final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
       final newState = state.copyWith(
         phase: GamePhase.rolling,
@@ -141,47 +126,55 @@ class SuggestionService {
         GamePlayReady(
           gameState: newState,
           notificationMessage:
-              "${state.players[refutadorActualIdx].card.nameEs} mostró una prueba regulatoria. Hipótesis refutada.",
+              "${state.players[refutadorActualIdx].card.nameEs} mostró una prueba. Hipótesis refutada.",
         ),
         cardToShow
       );
-    } else {
-      // El jugador no tiene ninguna carta que coincida
-      final siguienteRefutador = (refutadorActualIdx + 1) % state.players.length;
-
-      if (siguienteRefutador == state.currentTurnIndex) {
-        // Todos los jugadores han sido consultados y nadie pudo refutar
-        final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
-        final newState = state.copyWith(
-          phase: GamePhase.rolling,
-          currentTurnIndex: siguienteTurno,
-          currentSuggestion: null,
-          refutingPlayerIndex: null,
-          currentDiceResult: null,
-        );
-        return (
-          GamePlayReady(
-            gameState: newState,
-            notificationMessage: "Nadie ha podido refutar la sospecha. ¡Las pistas parecen sólidas!",
-          ),
-          null
-        );
-      } else {
-        // Pasar al siguiente jugador
-        final newState = state.copyWith(refutingPlayerIndex: siguienteRefutador);
-        return (
-          GamePlayReady(
-            gameState: newState,
-            notificationMessage:
-                "${state.players[refutadorActualIdx].card.nameEs} no tiene pruebas. Preguntando al siguiente...",
-          ),
-          null
-        );
-      }
     }
+
+    // Caso 3: este jugador NO tiene ninguna carta coincidente → pasa al siguiente.
+    // Regla Cluedo: incluso los eliminados participan (siguen teniendo mano y deben responder).
+    final siguienteRefutador = (refutadorActualIdx + 1) % state.players.length;
+
+    if (siguienteRefutador == state.currentTurnIndex) {
+      // Hemos dado toda la vuelta sin que nadie refute.
+      final siguienteTurno = calculateNextValidTurn(state.currentTurnIndex, state.players);
+      final newState = state.copyWith(
+        phase: GamePhase.rolling,
+        currentTurnIndex: siguienteTurno,
+        currentSuggestion: null,
+        refutingPlayerIndex: null,
+        currentDiceResult: null,
+      );
+      return (
+        GamePlayReady(
+          gameState: newState,
+          notificationMessage:
+              "Nadie ha podido refutar la sospecha. ¡Las pistas parecen sólidas!",
+        ),
+        null
+      );
+    }
+
+    final newState = state.copyWith(refutingPlayerIndex: siguienteRefutador);
+    final refutadorName = state.players[refutadorActualIdx].card.nameEs;
+    final eliminadoTag = state.players[refutadorActualIdx].isEliminated
+        ? " (eliminado)"
+        : "";
+    return (
+      GamePlayReady(
+        gameState: newState,
+        notificationMessage:
+            "$refutadorName$eliminadoTag no tiene pruebas. Preguntando al siguiente...",
+      ),
+      null
+    );
   }
 
-  /// Procesa una acusación hecha por el jugador actual. Verifica si la acusación es correcta y devuelve el estado resultante.
+  /// Procesa una acusación hecha por el jugador actual.
+  /// Regla Cluedo: si falla la acusación, el jugador queda ELIMINADO del juego:
+  /// - No tira más dados, no se mueve, no hace sugerencias ni acusaciones.
+  /// - PERO sí sigue participando en refutaciones (debe mostrar cartas si se le pide).
   Object makeAccusation({
     required ClueGameState state,
     required CharacterCard suspect,
@@ -198,54 +191,77 @@ class SuggestionService {
         finalState: state.copyWith(phase: GamePhase.gameOver),
         winnerName: state.currentCharacter.card.nameEs,
       );
-    } else {
-      // Acusación fallida: el jugador es eliminado del juego activo
-      // Pero sigue participando en las refutaciones (debe mostrar cartas cuando se le pide)
-      final updatedPlayers = List<PlayerCharacter>.from(state.players);
-      final int indexAcusador = state.currentTurnIndex;
-
-      // Marcamos al jugador como que ha hecho una acusación fallida
-      // En una implementación completa, tendríamos un estado especial para esto
-      // Por ahora, lo eliminamos pero el service de refutación todavía le permitirá mostrar cartas
-      updatedPlayers[indexAcusador] = updatedPlayers[indexAcusador].copyWith(
-        isEliminated: true,
-      );
-
-      final bool todosEliminados = updatedPlayers.every((p) => p.isEliminated);
-
-      if (todosEliminados) {
-        return GamePlayReady(
-          gameState: state.copyWith(
-            players: updatedPlayers,
-            phase: GamePhase.gameOver,
-          ),
-          notificationMessage: "Todos los investigadores han fallado. El asesino escapó.",
-        );
-      } else {
-        final siguienteTurno =
-            _calcularSiguienteTurnoValido(state.currentTurnIndex, updatedPlayers);
-        return GamePlayReady(
-          gameState: state.copyWith(
-            players: updatedPlayers,
-            currentTurnIndex: siguienteTurno,
-            phase: GamePhase.rolling,
-            currentDiceResult: null,
-          ),
-          notificationMessage:
-              "La acusación de ${state.currentCharacter.card.nameEs} era errónea. Ha quedado fuera.",
-        );
-      }
     }
+
+    // Acusación fallida: eliminar al jugador (sigue refutando).
+    final updatedPlayers = List<PlayerCharacter>.from(state.players);
+    final int indexAcusador = state.currentTurnIndex;
+    updatedPlayers[indexAcusador] = updatedPlayers[indexAcusador].copyWith(
+      isEliminated: true,
+    );
+
+    // Determinar si quedan jugadores activos (no eliminados).
+    final quedanJugadoresActivos = updatedPlayers.any((p) => !p.isEliminated);
+
+    if (!quedanJugadoresActivos) {
+      return GamePlayReady(
+        gameState: state.copyWith(
+          players: updatedPlayers,
+          phase: GamePhase.gameOver,
+        ),
+        notificationMessage: "Todos los investigadores han fallado. El asesino escapó.",
+      );
+    }
+
+    // Pasar el turno al siguiente jugador NO eliminado.
+    final siguienteTurno = _nextNonEliminated(indexAcusador, updatedPlayers);
+    return GamePlayReady(
+      gameState: state.copyWith(
+        players: updatedPlayers,
+        currentTurnIndex: siguienteTurno,
+        phase: GamePhase.rolling,
+        currentDiceResult: null,
+      ),
+      notificationMessage:
+          "¡La acusación de ${state.currentCharacter.card.nameEs} era errónea! Ha quedado eliminado, pero sigue refutando.",
+    );
   }
 
-  int _calcularSiguienteTurnoValido(int turnoActual, List<PlayerCharacter> listaJugadores) {
-    int siguiente = (turnoActual + 1) % listaJugadores.length;
-    for (int i = 0; i < listaJugadores.length; i++) {
-      if (!listaJugadores[siguiente].isEliminated) {
-        return siguiente;
-      }
-      siguiente = (siguiente + 1) % listaJugadores.length;
+  /// Devuelve el siguiente índice de jugador NO eliminado, empezando por turnoActual+1.
+  int _nextNonEliminated(int turnoActual, List<PlayerCharacter> lista) {
+    int n = lista.length;
+    for (int i = 1; i <= n; i++) {
+      int idx = (turnoActual + i) % n;
+      if (!lista[idx].isEliminated) return idx;
     }
     return turnoActual;
+  }
+
+  String _roomNameEs(String roomId) {
+    return {
+      'study': 'Estudio',
+      'hall': 'Vestíbulo',
+      'lounge': 'Salón',
+      'library': 'Biblioteca',
+      'dining_room': 'Comedor',
+      'billiard_room': 'Sala de billar',
+      'conservatory': 'Invernadero',
+      'ballroom': 'Salón de baile',
+      'kitchen': 'Cocina',
+    }[roomId] ?? roomId;
+  }
+
+  String _roomNameEn(String roomId) {
+    return {
+      'study': 'Study',
+      'hall': 'Hall',
+      'lounge': 'Lounge',
+      'library': 'Library',
+      'dining_room': 'Dining Room',
+      'billiard_room': 'Billiard Room',
+      'conservatory': 'Conservatory',
+      'ballroom': 'Ballroom',
+      'kitchen': 'Kitchen',
+    }[roomId] ?? roomId;
   }
 }
